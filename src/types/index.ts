@@ -108,3 +108,43 @@ export interface SesionUsuario {
 export type EstadoFinca = 'Disponible' | 'Ocupada' | 'Mantenimiento';
 export type EstadoReserva = 'Pendiente' | 'Confirmada' | 'Cancelada' | 'Completada';
 export type EstadoPago = 'Pendiente' | 'Pagado' | 'Rechazado';
+
+// =============================================================================
+// PARÁMETROS / DTOs
+// =============================================================================
+
+export interface CrearFincaDTO {
+  NombreFinca: string;
+  IdMunicipio: number;
+  NumeroDocumentoUsuario?: number | null;
+  Direccion?: string | null;
+  InformacionAdicional?: string | null;
+  Capacidad: number;
+  Precio: number;
+  Estado?: EstadoFinca;
+  Calificacion?: number;
+  UrlImagen?: string | null;
+}
+
+export interface ModificarFincaDTO {
+  NombreFinca?: string;
+  IdMunicipio?: number;
+  NumeroDocumentoUsuario?: number | null;
+  Direccion?: string | null;
+  InformacionAdicional?: string | null;
+  Capacidad?: number;
+  Precio?: number;
+  Estado?: EstadoFinca;
+  Calificacion?: number;
+  UrlImagen?: string | null;
+}
+
+export interface CrearReservaDTO {
+  IdFinca: number;
+  NumeroDocumentoUsuario: number;
+  FechaEntrada: string;
+  FechaSalida: string;
+  MontoReserva: number;
+  IdMetodoDePago: number;
+  Estado?: EstadoReserva;
+}

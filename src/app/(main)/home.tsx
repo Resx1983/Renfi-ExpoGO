@@ -9,9 +9,12 @@ import {
   ActivityIndicator,
   RefreshControl,
   Image,
+  Alert,
+  Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing, Radius, FontSize, FontWeight, Shadows } from '../../constants/theme';
 import { Badge, estadoFincaVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -44,7 +47,7 @@ function FincaCard({ finca }: { finca: Finca }) {
       activeOpacity={0.88}
       style={styles.card}
       onPress={() => {
-        // Fase 2: navegar al detalle de la finca
+        router.push({ pathname: '/(main)/finca/[id]', params: { id: String(finca.IdFinca) } } as any);
       }}
     >
       <Image
@@ -78,13 +81,13 @@ function FincaCard({ finca }: { finca: Finca }) {
         <View style={styles.cardFooter}>
           <View style={styles.priceRow}>
             <Text style={styles.price}>
-              ${finca.Precio.toLocaleString('es-CO')}
+              ${(finca.Precio ?? 0).toLocaleString('es-CO')}
             </Text>
             <Text style={styles.priceUnit}>/noche</Text>
           </View>
           <View style={styles.metaRow}>
-            <Text style={styles.metaItem}>👥 {finca.Capacidad} pers.</Text>
-            <Text style={styles.metaItem}>⭐ {finca.Calificacion}/5</Text>
+            <Text style={styles.metaItem}>👥 {finca.Capacidad ?? 1} pers.</Text>
+            <Text style={styles.metaItem}>⭐ {finca.Calificacion ?? 5}/5</Text>
           </View>
         </View>
       </View>
@@ -111,6 +114,7 @@ function EmptyState({ onRetry }: { onRetry: () => void }) {
 // ── Pantalla principal ────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const { usuario, cerrarSesion } = useAuth();
+  const insets = useSafeAreaInsets();
   const [fincas, setFincas] = useState<Finca[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -127,12 +131,21 @@ export default function HomeScreen() {
     }
   }, []);
 
+  // Carga con spinner a pantalla completa (inicial y botón "Reintentar")
+  const cargarConSpinner = useCallback(async () => {
+    setLoading(true);
+    await cargarFincas();
+    setLoading(false);
+  }, [cargarFincas]);
+
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      await cargarFincas();
-      setLoading(false);
-    })();
+    let activo = true;
+    cargarFincas().finally(() => {
+      if (activo) setLoading(false);
+    });
+    return () => {
+      activo = false;
+    };
   }, [cargarFincas]);
 
   const onRefresh = useCallback(async () => {
@@ -141,27 +154,65 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [cargarFincas]);
 
-  const handleCerrarSesion = () => {
+  const salir = () => {
     cerrarSesion();
     router.replace('/(auth)/login');
   };
+
+  const handleCerrarSesion = () => {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        const confirmar = window.confirm('¿Quieres cerrar sesión y salir de tu cuenta?');
+        if (confirmar) salir();
+      } else {
+        salir();
+      }
+    } else {
+      Alert.alert('Cerrar sesión', '¿Quieres salir de tu cuenta?', [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Salir',
+          style: 'destructive',
+          onPress: salir,
+        },
+      ]);
+    }
+  };
+
+  const esAdmin = usuario?.IdRol === 1 || usuario?.IdRol === 3;
 
   return (
     <View style={styles.flex}>
       <StatusBar style="light" />
 
       {/* ── Header ── */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerGreeting}>
-            Hola, {usuario?.NombreUsuario ?? 'Bienvenido'} 👋
-          </Text>
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <View style={styles.headerTextBox}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={styles.headerGreeting} numberOfLines={1}>
+              Hola, {usuario?.NombreUsuario ?? 'Bienvenido'} 👋
+            </Text>
+            {usuario?.NombreRol && (
+              <View style={styles.roleBadge}>
+                <Text style={styles.roleBadgeText}>{usuario.NombreRol}</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.headerSub}>Encuentra tu próxima escapada</Text>
         </View>
-        <TouchableOpacity style={styles.avatarBtn} onPress={handleCerrarSesion}>
-          <Text style={styles.avatarText}>
-            {usuario?.NombreUsuario?.[0]?.toUpperCase() ?? '?'}
-          </Text>
+        <TouchableOpacity
+          style={styles.logoutBtn}
+          onPress={handleCerrarSesion}
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar sesión"
+          activeOpacity={0.8}
+        >
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarText}>
+              {usuario?.NombreUsuario?.[0]?.toUpperCase() ?? 'U'}
+            </Text>
+          </View>
+          <Text style={styles.logoutBtnText}>Salir</Text>
         </TouchableOpacity>
       </View>
 
@@ -172,6 +223,51 @@ export default function HomeScreen() {
         <View style={styles.zocaloTerra} />
       </View>
 
+      {/* ── Barra de Navegación Rápida / Acciones por Rol ── */}
+      <View style={styles.navBar}>
+        {esAdmin ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.navBarContent}
+          >
+            <TouchableOpacity
+              style={styles.navPillPrimary}
+              onPress={() => router.push('/(main)/admin/crear-finca')}
+            >
+              <Text style={styles.navPillPrimaryText}>+ Crear Finca</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.navPill}
+              onPress={() => router.push('/(main)/admin/fincas')}
+            >
+              <Text style={styles.navPillText}>🏡 Gestión Fincas</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.navPill}
+              onPress={() => router.push('/(main)/admin/reservas')}
+            >
+              <Text style={styles.navPillText}>📋 Reservas</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.navPill}
+              onPress={() => router.push('/(main)/mis-reservas')}
+            >
+              <Text style={styles.navPillText}>📅 Mis Reservas</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        ) : (
+          <View style={styles.navBarClient}>
+            <TouchableOpacity
+              style={styles.navPillPrimary}
+              onPress={() => router.push('/(main)/mis-reservas')}
+            >
+              <Text style={styles.navPillPrimaryText}>📅 Mis Reservas</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
       {/* ── Cuerpo ── */}
       {loading ? (
         <View style={styles.loaderContainer}>
@@ -180,13 +276,13 @@ export default function HomeScreen() {
         </View>
       ) : error ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>⚠️</Text>
+          <Text style={styles.errorIcon}>⚠️</Text>
           <Text style={styles.emptyTitle}>Error al cargar</Text>
           <Text style={styles.emptyDesc}>{error}</Text>
-          <Button title="Reintentar" onPress={cargarFincas} />
+          <Button title="Reintentar" onPress={cargarConSpinner} />
         </View>
       ) : fincas.length === 0 ? (
-        <EmptyState onRetry={cargarFincas} />
+        <EmptyState onRetry={cargarConSpinner} />
       ) : (
         <FlatList
           data={fincas}
@@ -220,13 +316,14 @@ const styles = StyleSheet.create({
   // ── Header ──────────────────────────────────────────────────────────────
   header: {
     backgroundColor: Colors.secondary,
-    paddingTop: 52,
     paddingBottom: 20,
     paddingHorizontal: Spacing.gutter,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 12,
   },
+  headerTextBox: { flex: 1 },
   headerGreeting: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
@@ -237,17 +334,34 @@ const styles = StyleSheet.create({
     color: Colors.textOnDarkMuted,
     marginTop: 2,
   },
-  avatarBtn: {
-    width: 44,
-    height: 44,
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    paddingVertical: 5,
+    paddingLeft: 6,
+    paddingRight: 12,
     borderRadius: Radius.full,
-    backgroundColor: Colors.primaryLight,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.28)',
+    gap: 8,
+  },
+  avatarCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
     fontWeight: FontWeight.bold,
+    color: Colors.textInverse,
+  },
+  logoutBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
     color: Colors.textInverse,
   },
 
@@ -256,6 +370,59 @@ const styles = StyleSheet.create({
   zocaloGreen: { height: 2, backgroundColor: Colors.secondary },
   zocaloWhite: { height: 3, backgroundColor: Colors.surfaceLight },
   zocaloTerra: { flex: 1, backgroundColor: Colors.primary },
+
+  roleBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+  },
+  roleBadgeText: {
+    fontSize: FontSize.xs,
+    color: Colors.textInverse,
+    fontWeight: FontWeight.semibold,
+  },
+
+  navBar: {
+    backgroundColor: Colors.surfaceLight,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceMedium,
+    paddingVertical: 10,
+    paddingHorizontal: Spacing.gutter,
+  },
+  navBarContent: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  navBarClient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  navPill: {
+    backgroundColor: Colors.surfaceBase,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.surfaceMedium,
+  },
+  navPillText: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textSecondary,
+  },
+  navPillPrimary: {
+    backgroundColor: Colors.secondary,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: Radius.full,
+  },
+  navPillPrimaryText: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    color: Colors.textInverse,
+  },
 
   // ── Lista ───────────────────────────────────────────────────────────────
   listContent: {
@@ -378,6 +545,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.secondarySurface,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 8,
+  },
+  errorIcon: {
+    fontSize: 40,
     marginBottom: 8,
   },
   emptyTitle: {

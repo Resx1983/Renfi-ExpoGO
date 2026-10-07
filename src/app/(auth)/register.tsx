@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Colors,
   Spacing,
@@ -48,6 +49,7 @@ const erroresVacios: FormErrors = {
 
 export default function RegisterScreen() {
   const { setUsuario } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [nombre, setNombre] = useState('');
   const [apellido, setApellido] = useState('');
@@ -59,6 +61,7 @@ export default function RegisterScreen() {
   const [mostrarConfirmar, setMostrarConfirmar] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errores, setErrores] = useState<FormErrors>(erroresVacios);
+  const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
 
   // ── Validación ─────────────────────────────────────────────────────────────
   const validar = (): boolean => {
@@ -116,6 +119,7 @@ export default function RegisterScreen() {
 
   // ── Registro ───────────────────────────────────────────────────────────────
   const handleRegistrar = async () => {
+    setErrorGeneral(null);
     if (!validar()) return;
 
     setLoading(true);
@@ -125,12 +129,16 @@ export default function RegisterScreen() {
       telefono,
       correo,
       contrasena,
-      idRol: 3, // Cliente por defecto
+      idRol: 2, // Cliente por defecto (según tabla Rol)
     });
     setLoading(false);
 
     if (regError || !numeroDocumento) {
-      Alert.alert('Error al registrarse', regError ?? 'Inténtalo de nuevo.');
+      const msg = regError ?? 'Inténtalo de nuevo.';
+      setErrorGeneral(msg);
+      if (Platform.OS !== 'web') {
+        Alert.alert('Error al registrarse', msg);
+      }
       return;
     }
 
@@ -144,26 +152,34 @@ export default function RegisterScreen() {
 
     if (loginError || !sesion) {
       // Registro OK pero login falló — enviar al login manual
-      Alert.alert(
-        '¡Cuenta creada!',
-        'Tu cuenta fue creada exitosamente. Por favor inicia sesión.',
-        [{ text: 'Aceptar', onPress: () => router.replace('/(auth)/login') }]
-      );
+      if (Platform.OS === 'web') {
+        router.replace('/(auth)/login');
+      } else {
+        Alert.alert(
+          '¡Cuenta creada!',
+          'Tu cuenta fue creada exitosamente. Por favor inicia sesión.',
+          [{ text: 'Aceptar', onPress: () => router.replace('/(auth)/login') }]
+        );
+      }
       return;
     }
 
     setUsuario(sesion);
-    Alert.alert(
-      '¡Bienvenido/a!',
-      `Hola ${sesion.NombreUsuario}, tu cuenta fue creada exitosamente.`,
-      [{ text: 'Continuar', onPress: () => router.replace('/(main)/home') }]
-    );
+    if (Platform.OS === 'web') {
+      router.replace('/(main)/home');
+    } else {
+      Alert.alert(
+        '¡Bienvenido/a!',
+        `Hola ${sesion.NombreUsuario}, tu cuenta fue creada exitosamente.`,
+        [{ text: 'Continuar', onPress: () => router.replace('/(main)/home') }]
+      );
+    }
   };
 
   return (
     <KeyboardAvoidingView
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <StatusBar style="light" />
       <ScrollView
@@ -172,11 +188,16 @@ export default function RegisterScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ── Header verde compacto ── */}
-        <View style={styles.heroBand}>
+        <View style={[styles.heroBand, { paddingTop: insets.top + 24 }]}>
           <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => router.back()}
+            style={[styles.backBtn, { top: insets.top + 8 }]}
+            onPress={() =>
+              router.canGoBack() ? router.back() : router.replace('/(auth)/login')
+            }
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Volver"
+            hitSlop={8}
           >
             <Text style={styles.backArrow}>←</Text>
           </TouchableOpacity>
@@ -209,6 +230,12 @@ export default function RegisterScreen() {
           <Text style={styles.formSubtitle}>
             Completa tus datos para comenzar
           </Text>
+
+          {errorGeneral && (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorBannerText}>{errorGeneral}</Text>
+            </View>
+          )}
 
           {/* Fila nombre + apellido */}
           <View style={styles.row}>
@@ -345,14 +372,12 @@ const styles = StyleSheet.create({
   heroBand: {
     backgroundColor: Colors.secondary,
     alignItems: 'center',
-    paddingTop: 50,
     paddingBottom: 44,
     overflow: 'hidden',
   },
 
   backBtn: {
     position: 'absolute',
-    top: 52,
     left: 20,
     width: 40,
     height: 40,
@@ -528,6 +553,22 @@ const styles = StyleSheet.create({
   dividerText: {
     fontSize: FontSize.sm,
     color: Colors.textTertiary,
+  },
+
+  errorBanner: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#F87171',
+    borderRadius: Radius.md,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: Spacing.md,
+  },
+  errorBannerText: {
+    color: '#991B1B',
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    lineHeight: 18,
   },
 
   footer: {

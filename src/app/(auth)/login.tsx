@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing, Radius, FontSize, FontWeight, Shadows } from '../../constants/theme';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -23,11 +24,13 @@ import { useAuth } from '../../context/AuthContext';
 
 export default function LoginScreen() {
   const { setUsuario } = useAuth();
+  const insets = useSafeAreaInsets();
   const [correo, setCorreo] = useState('');
   const [contrasena, setContrasena] = useState('');
   const [mostrarContrasena, setMostrarContrasena] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errores, setErrores] = useState({ correo: '', contrasena: '' });
+  const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
 
   const validar = () => {
     const e = { correo: '', contrasena: '' };
@@ -48,22 +51,34 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
+    setErrorGeneral(null);
     if (!validar()) return;
     setLoading(true);
     const { data, error } = await iniciarSesion(correo.trim(), contrasena);
     setLoading(false);
     if (error || !data) {
-      Alert.alert('Error al iniciar sesión', error ?? 'Inténtalo de nuevo.');
+      const msg = error ?? 'Correo o contraseña incorrectos.';
+      setErrorGeneral(msg);
+      if (Platform.OS !== 'web') {
+        Alert.alert('Error al iniciar sesión', msg);
+      }
       return;
     }
     setUsuario(data);
     router.replace('/(main)/home');
   };
 
+  const llenarDemo = (emailDemo: string, passDemo: string) => {
+    setCorreo(emailDemo);
+    setContrasena(passDemo);
+    setErrores({ correo: '', contrasena: '' });
+    setErrorGeneral(null);
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <StatusBar style="light" />
       <ScrollView
@@ -72,7 +87,7 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Panel verde de marca */}
-        <View style={styles.heroBand}>
+        <View style={[styles.heroBand, { paddingTop: insets.top + 32 }]}>
           {/* Logo */}
           <View style={styles.logoBox}>
             <View style={styles.logoRoof} />
@@ -103,10 +118,19 @@ export default function LoginScreen() {
             Accede para gestionar tus reservas
           </Text>
 
+          {errorGeneral && (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorBannerText}>{errorGeneral}</Text>
+            </View>
+          )}
+
           <Input
             label="Correo electrónico"
             value={correo}
-            onChangeText={setCorreo}
+            onChangeText={(v) => {
+              setCorreo(v);
+              setErrorGeneral(null);
+            }}
             keyboardType="email-address"
             autoCapitalize="none"
             autoComplete="email"
@@ -118,7 +142,10 @@ export default function LoginScreen() {
           <Input
             label="Contraseña"
             value={contrasena}
-            onChangeText={setContrasena}
+            onChangeText={(v) => {
+              setContrasena(v);
+              setErrorGeneral(null);
+            }}
             secureTextEntry={!mostrarContrasena}
             autoComplete="current-password"
             placeholder="••••••••"
@@ -155,6 +182,27 @@ export default function LoginScreen() {
             fullWidth
             onPress={() => router.push('/(auth)/register')}
           />
+
+          {/* Cuentas de demostración de acceso rápido */}
+          <View style={styles.demoBox}>
+            <Text style={styles.demoTitle}>Cuentas demo (toca para autocompletar):</Text>
+            <View style={styles.demoChipsRow}>
+              <TouchableOpacity
+                style={styles.demoChip}
+                onPress={() => llenarDemo('cliente@renfi.com', 'cliente123')}
+              >
+                <Text style={styles.demoChipRole}>Cliente</Text>
+                <Text style={styles.demoChipCreds}>cliente123</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.demoChip}
+                onPress={() => llenarDemo('admin@renfi.com', 'admin123')}
+              >
+                <Text style={styles.demoChipRole}>Admin</Text>
+                <Text style={styles.demoChipCreds}>admin123</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
 
         {/* Footer mínimo */}
@@ -320,6 +368,61 @@ const styles = StyleSheet.create({
   dividerText: {
     fontSize: FontSize.sm,
     color: Colors.textTertiary,
+  },
+
+  errorBanner: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#F87171',
+    borderRadius: Radius.md,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: Spacing.md,
+  },
+  errorBannerText: {
+    color: '#991B1B',
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    lineHeight: 18,
+  },
+
+  demoBox: {
+    marginTop: Spacing.lg,
+    padding: 12,
+    backgroundColor: Colors.surfaceMedium,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.surfaceDark,
+  },
+  demoTitle: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginBottom: 8,
+    fontWeight: FontWeight.medium,
+  },
+  demoChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  demoChip: {
+    flex: 1,
+    backgroundColor: Colors.surfaceLight,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.secondaryLight,
+    alignItems: 'center',
+  },
+  demoChipRole: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    color: Colors.secondary,
+  },
+  demoChipCreds: {
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    marginTop: 2,
   },
 
   footer: {
