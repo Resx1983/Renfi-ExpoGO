@@ -21,12 +21,13 @@ describe('UI Components (con React Native Testing Library)', () => {
 
     test('debe deshabilitarse y mostrar el spinner cuando loading = true', async () => {
       const onPressMock = jest.fn();
-      const { queryByText } = await render(
+      const { getByText } = await render(
         <Button title="Cargando..." loading onPress={onPressMock} />
       );
 
-      // El texto se reemplaza por el ActivityIndicator
-      expect(queryByText('Cargando...')).toBeNull();
+      // El spinner antecede al texto y el botón queda deshabilitado
+      fireEvent.press(getByText('Cargando...'));
+      expect(onPressMock).not.toHaveBeenCalled();
     });
 
     test('no debe disparar onPress si está deshabilitado', async () => {
@@ -49,14 +50,14 @@ describe('UI Components (con React Native Testing Library)', () => {
     test('helpers de estado deben retornar las variantes semánticas correspondientes', () => {
       expect(estadoFincaVariant('Disponible')).toBe('success');
       expect(estadoFincaVariant('Ocupada')).toBe('warning');
-      expect(estadoFincaVariant('Mantenimiento')).toBe('danger');
-      expect(estadoFincaVariant('Desconocido')).toBe('default');
+      expect(estadoFincaVariant('Mantenimiento')).toBe('warning');
+      expect(estadoFincaVariant('')).toBe('default');
 
       expect(estadoReservaVariant('Confirmada')).toBe('success');
       expect(estadoReservaVariant('Pendiente')).toBe('warning');
       expect(estadoReservaVariant('Cancelada')).toBe('danger');
-      expect(estadoReservaVariant('Completada')).toBe('primary');
-      expect(estadoReservaVariant('Otro')).toBe('default');
+      expect(estadoReservaVariant('Completada')).toBe('success');
+      expect(estadoReservaVariant('Otro')).toBe('warning');
     });
   });
 

@@ -2,6 +2,12 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SesionUsuario } from '../types';
 
+// Igual que la web: admin si el rol contiene "admin" o IdRol === 1
+export function esAdmin(u: SesionUsuario | null): boolean {
+  if (!u) return false;
+  return (u.NombreRol ?? '').toLowerCase().includes('admin') || Number(u.IdRol) === 1;
+}
+
 // =============================================================================
 // CONTEXTO DE SESIÓN — Usuario autenticado con persistencia en AsyncStorage
 // =============================================================================

@@ -65,97 +65,98 @@ describe('Reservas Service (con Mocks)', () => {
 
   // ── 2. Crear reserva ───────────────────────────────────────────────────────
   describe('crearReserva()', () => {
-    test('debe insertar la reserva, generar factura y registrar el pago exitosamente', async () => {
-      const dto = {
-        IdFinca: 1,
-        NumeroDocumentoUsuario: 2,
-        FechaEntrada: '2026-10-10T12:00:00Z',
-        FechaSalida: '2026-10-12T12:00:00Z',
-        MontoReserva: 1700000,
-        IdMetodoDePago: 4,
-        Estado: 'Confirmada' as const,
+    // Cadena PostgREST simulada: thenable para consultas de lista, terminales para single/maybeSingle
+    const query = (result: { data: any; error: any }) => {
+      const chain: any = { then: (ok: any, ko: any) => Promise.resolve(result).then(ok, ko) };
+      for (const m of ['select', 'insert', 'delete', 'eq', 'lt', 'gt']) chain[m] = jest.fn(() => chain);
+      chain.single = jest.fn().mockResolvedValue(result);
+      chain.maybeSingle = jest.fn().mockResolvedValue(result);
+      return chain;
+    };
+
+    const dto = {
+      IdFinca: 1,
+      NumeroDocumentoUsuario: 2,
+      FechaEntrada: '2026-10-10',
+      FechaSalida: '2026-10-12',
+      MontoReserva: 1700000,
+      IdMetodoDePago: 4,
+      Huespedes: 4,
+    };
+
+    const reservaDB = {
+      IdReserva: 101,
+      IdFinca: 1,
+      NumeroDocumentoUsuario: 2,
+      FechaReserva: '2026-10-06T18:00:00Z',
+      FechaEntrada: '2026-10-10',
+      FechaSalida: '2026-10-12',
+      Estado: 'Activa',
+      MontoReserva: 1700000,
+      Finca: { NombreFinca: 'Finca Campestre El Paraíso', IdMunicipio: 2, Municipio: { NombreMunicipio: 'Guatapé' } },
+      Usuario: { NombreUsuario: 'Cliente', ApellidoUsuario: 'Demo' },
+    };
+
+    // Reserva: 1ª llamada = consulta de cruces, 2ª = insert, 3ª = rollback (delete)
+    const montar = (opts: { cruces?: any[]; pago?: any; capacidad?: number }) => {
+      const reservaCalls = [
+        query({ data: opts.cruces ?? [], error: null }),
+        query({ data: reservaDB, error: null }),
+        query({ data: null, error: null }),
+      ];
+      const rollback = reservaCalls[2];
+      const tablas: Record<string, any> = {
+        Finca: query({ data: { Capacidad: opts.capacidad ?? 10 }, error: null }),
+        Factura: query({ data: { IdFactura: 501 }, error: null }),
+        Pago: query(opts.pago ?? { data: { IdPago: 801 }, error: null }),
       };
+      (supabase.from as jest.Mock).mockImplementation((t: string) => (t === 'Reserva' ? reservaCalls.shift() : tablas[t]));
+      return { rollback };
+    };
 
-      const mockReservaDB = {
-        IdReserva: 101,
-        IdFinca: 1,
-        NumeroDocumentoUsuario: 2,
-        FechaReserva: '2026-10-06T18:00:00Z',
-        FechaEntrada: '2026-10-10T12:00:00Z',
-        FechaSalida: '2026-10-12T12:00:00Z',
-        Estado: 'Confirmada',
-        MontoReserva: 1700000,
-        Finca: {
-          NombreFinca: 'Finca Campestre El Paraíso',
-          IdMunicipio: 2,
-          Municipio: { NombreMunicipio: 'Guatapé' },
-        },
-        Usuario: {
-          NombreUsuario: 'Cliente',
-          ApellidoUsuario: 'Demo',
-        },
-      };
-
-      // Mock de supabase.from('Reserva')
-      const mockReservaQuery = {
-        insert: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValueOnce({ data: mockReservaDB, error: null }),
-      };
-
-      // Mock de supabase.from('Factura')
-      const mockFacturaQuery = {
-        insert: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValueOnce({ data: { IdFactura: 501 }, error: null }),
-      };
-
-      // Mock de supabase.from('Pago')
-      const mockPagoQuery = {
-        insert: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValueOnce({ data: { IdPago: 801 }, error: null }),
-      };
-
-      (supabase.from as jest.Mock).mockImplementation((tabla: string) => {
-        if (tabla === 'Reserva') return mockReservaQuery;
-        if (tabla === 'Factura') return mockFacturaQuery;
-        if (tabla === 'Pago') return mockPagoQuery;
-        return {};
-      });
-
+    test('inserta reserva Activa, factura y pago', async () => {
+      montar({});
       const { data, idFactura, idPago, error } = await crearReserva(dto);
-
       expect(error).toBeNull();
       expect(data?.IdReserva).toBe(101);
-      expect(data?.NombreFinca).toBe('Finca Campestre El Paraíso');
+      expect(data?.Estado).toBe('Activa');
       expect(data?.NombreMunicipio).toBe('Guatapé');
       expect(idFactura).toBe(501);
       expect(idPago).toBe(801);
     });
 
-    test('debe retornar error si la inserción de la reserva falla', async () => {
-      const mockReservaQuery = {
-        insert: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValueOnce({
-          data: null,
-          error: { message: 'Capacidad excedida' },
-        }),
-      };
-      (supabase.from as jest.Mock).mockReturnValue(mockReservaQuery);
+    test('ignora reservas canceladas o anuladas al validar cruces', async () => {
+      montar({ cruces: [{ Estado: 'Cancelada' }, { Estado: 'anulado' }] });
+      const { error } = await crearReserva(dto);
+      expect(error).toBeNull();
+    });
 
-      const { data, error } = await crearReserva({
-        IdFinca: 1,
-        NumeroDocumentoUsuario: 2,
-        FechaEntrada: '2026-10-10',
-        FechaSalida: '2026-10-12',
-        MontoReserva: 1700000,
-        IdMetodoDePago: 1,
-      });
-
+    test('rechaza fechas que se cruzan con otra reserva activa', async () => {
+      montar({ cruces: [{ Estado: 'Activa' }] });
+      const { data, error } = await crearReserva(dto);
       expect(data).toBeNull();
-      expect(error).toBe('Capacidad excedida');
+      expect(error).toBe('La finca ya tiene una reserva en las fechas seleccionadas.');
+    });
+
+    test('rechaza más huéspedes que la capacidad', async () => {
+      montar({ capacidad: 3 });
+      const { error } = await crearReserva(dto);
+      expect(error).toBe('El número de huéspedes (4) supera la capacidad de la finca (3).');
+    });
+
+    test('rechaza salida anterior o igual a la entrada', async () => {
+      const { error } = await crearReserva({ ...dto, FechaSalida: '2026-10-10' });
+      expect(error).toBe('La fecha de salida debe ser posterior a la fecha de entrada.');
+      expect(supabase.from).not.toHaveBeenCalled();
+    });
+
+    test('revierte la reserva si el pago falla', async () => {
+      const { rollback } = montar({ pago: { data: null, error: { message: 'pago rechazado' } } });
+      const { data, error } = await crearReserva(dto);
+      expect(data).toBeNull();
+      expect(error).toBe('pago rechazado');
+      expect(rollback.delete).toHaveBeenCalled();
+      expect(rollback.eq).toHaveBeenCalledWith('IdReserva', 101);
     });
   });
 

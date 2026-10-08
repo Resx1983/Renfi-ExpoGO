@@ -26,7 +26,9 @@
     "plugins": [
       [
         "expo-router",
-        { "root": "./src/app" }
+        {
+          "root": "./src/app"
+        }
       ],
       "expo-font",
       [
@@ -36,10 +38,8 @@
           "image": "./assets/icon.png",
           "imageWidth": 200
         }
-      ]
-    ],
-    "experiments": {
-      "typedRoutes": true
-    }
+      ],
+      "expo-asset"
+    ]
   }
 }

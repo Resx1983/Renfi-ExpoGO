@@ -86,15 +86,45 @@ export async function listarMetodosDePago(): Promise<MetodosPagoResult> {
   }
 }
 
+const ESTADOS_INACTIVOS = ['cancelada', 'cancelado', 'anulada', 'anulado'];
+export const esInactiva = (estado: string | null | undefined) => ESTADOS_INACTIVOS.includes((estado ?? '').trim().toLowerCase());
+
 /**
- * Realiza una nueva reserva:
- * 1. Registra en la tabla 'Reserva'.
- * 2. Genera automáticamente la 'Factura'.
- * 3. Registra el 'Pago' con el método seleccionado.
+ * Realiza una nueva reserva con las mismas reglas que API-Renfi (develop):
+ * 1. Valida fechas, monto, capacidad y que no se cruce con otra reserva activa.
+ * 2. Registra la 'Reserva', luego la 'Factura' y el 'Pago'.
+ *    Si la factura o el pago fallan, se revierte la reserva.
  */
 export async function crearReserva(dto: CrearReservaDTO): Promise<CrearReservaResult> {
   try {
-    const estadoReserva = dto.Estado ?? 'Confirmada';
+    if (!(Number(dto.MontoReserva) > 0)) {
+      return { data: null, error: 'El monto de la reserva debe ser mayor a cero.' };
+    }
+    if (!dto.FechaEntrada || !dto.FechaSalida || dto.FechaSalida.slice(0, 10) <= dto.FechaEntrada.slice(0, 10)) {
+      return { data: null, error: 'La fecha de salida debe ser posterior a la fecha de entrada.' };
+    }
+
+    if (dto.Huespedes != null) {
+      const { data: finca } = await supabase.from('Finca').select('Capacidad').eq('IdFinca', dto.IdFinca).maybeSingle();
+      if (!Number.isInteger(dto.Huespedes) || dto.Huespedes < 1) {
+        return { data: null, error: 'El número de huéspedes debe ser al menos 1.' };
+      }
+      if (finca && dto.Huespedes > Number(finca.Capacidad)) {
+        return { data: null, error: `El número de huéspedes (${dto.Huespedes}) supera la capacidad de la finca (${finca.Capacidad}).` };
+      }
+    }
+
+    // ponytail: check-then-insert sin lock (igual que la API); con concurrencia real usar EXCLUDE constraint en BD
+    const { data: cruces, error: crucesError } = await supabase
+      .from('Reserva')
+      .select('Estado')
+      .eq('IdFinca', dto.IdFinca)
+      .lt('FechaEntrada', dto.FechaSalida)
+      .gt('FechaSalida', dto.FechaEntrada);
+    if (crucesError) return { data: null, error: formatearErrorSupabase(crucesError) };
+    if ((cruces ?? []).some((r) => !esInactiva(r.Estado))) {
+      return { data: null, error: 'La finca ya tiene una reserva en las fechas seleccionadas.' };
+    }
 
     // 1. Crear Reserva
     const { data: reservaData, error: reservaError } = await supabase
@@ -104,7 +134,7 @@ export async function crearReserva(dto: CrearReservaDTO): Promise<CrearReservaRe
         NumeroDocumentoUsuario: dto.NumeroDocumentoUsuario,
         FechaEntrada: dto.FechaEntrada,
         FechaSalida: dto.FechaSalida,
-        Estado: estadoReserva,
+        Estado: dto.Estado ?? 'Activa',
         MontoReserva: dto.MontoReserva,
       })
       .select(`
@@ -129,51 +159,41 @@ export async function crearReserva(dto: CrearReservaDTO): Promise<CrearReservaRe
       .single();
 
     if (reservaError || !reservaData) {
-      return {
-        data: null,
-        error: formatearErrorSupabase(reservaError ?? 'Error al crear reserva.'),
-      };
+      return { data: null, error: formatearErrorSupabase(reservaError ?? 'Error al crear reserva.') };
     }
 
     const idReserva = Number(reservaData.IdReserva);
-    let idFactura: number | null = null;
-    let idPago: number | null = null;
+    const revertir = async (err: any) => {
+      await supabase.from('Reserva').delete().eq('IdReserva', idReserva);
+      return { data: null, error: formatearErrorSupabase(err ?? 'Error al procesar la reserva.') };
+    };
 
     // 2. Generar Factura
     const { data: facturaData, error: facturaError } = await supabase
       .from('Factura')
-      .insert({
-        IdReserva: idReserva,
-        Total: dto.MontoReserva,
-      })
+      .insert({ IdReserva: idReserva, Total: dto.MontoReserva })
       .select('IdFactura')
       .single();
+    if (facturaError || !facturaData) return revertir(facturaError);
+    const idFactura = Number(facturaData.IdFactura);
 
-    if (!facturaError && facturaData) {
-      idFactura = Number(facturaData.IdFactura);
+    // 3. Registrar Pago
+    const { data: pagoData, error: pagoError } = await supabase
+      .from('Pago')
+      .insert({
+        IdFactura: idFactura,
+        IdMetodoDePago: dto.IdMetodoDePago,
+        Monto: Math.round(dto.MontoReserva),
+        EstadoPago: 'Pagado',
+      })
+      .select('IdPago')
+      .single();
+    if (pagoError || !pagoData) return revertir(pagoError);
 
-      // 3. Registrar Pago
-      const { data: pagoData } = await supabase
-        .from('Pago')
-        .insert({
-          IdFactura: idFactura,
-          IdMetodoDePago: dto.IdMetodoDePago,
-          Monto: dto.MontoReserva,
-          EstadoPago: 'Pagado',
-        })
-        .select('IdPago')
-        .single();
-
-      if (pagoData) {
-        idPago = Number(pagoData.IdPago);
-      }
-    }
-
-    const reservaNormalizada = normalizarReserva(reservaData);
     return {
-      data: reservaNormalizada,
+      data: normalizarReserva(reservaData),
       idFactura,
-      idPago,
+      idPago: Number(pagoData.IdPago),
       error: null,
     };
   } catch (err: any) {
@@ -306,3 +326,27 @@ export async function actualizarEstadoReserva(
   }
 }
 
+
+/**
+ * Lista las reservas activas (no canceladas) de una finca, para marcar
+ * los días ocupados en el calendario de reserva.
+ */
+export async function listarReservasPorFinca(idFinca: number): Promise<ReservasResult> {
+  try {
+    const { data, error } = await supabase
+      .from('Reserva')
+      .select('IdReserva, IdFinca, NumeroDocumentoUsuario, FechaReserva, FechaEntrada, FechaSalida, Estado, MontoReserva')
+      .eq('IdFinca', idFinca);
+
+    if (error) {
+      return { data: null, error: formatearErrorSupabase(error) };
+    }
+
+    const activas = (data || [])
+      .map(normalizarReserva)
+      .filter((r) => !esInactiva(r.Estado));
+    return { data: activas, error: null };
+  } catch (err: any) {
+    return { data: null, error: formatearErrorSupabase(err) };
+  }
+}

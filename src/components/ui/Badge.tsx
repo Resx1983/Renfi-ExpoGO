@@ -1,9 +1,9 @@
 import React from 'react';
-import { View, Text, StyleSheet, ViewStyle } from 'react-native';
-import { Colors, Radius, FontSize, FontWeight } from '../../constants/theme';
+import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { Colors, Radius, Fonts } from '../../constants/theme';
 
 // =============================================================================
-// BADGE — Chips de estado del design system Renfi
+// BADGE — Píldoras suaves de estado (fondo tenue + texto de color)
 // =============================================================================
 
 type BadgeVariant = 'success' | 'warning' | 'danger' | 'primary' | 'default';
@@ -11,58 +11,44 @@ type BadgeVariant = 'success' | 'warning' | 'danger' | 'primary' | 'default';
 interface BadgeProps {
   label: string;
   variant?: BadgeVariant;
-  style?: ViewStyle;
+  dot?: boolean;
+  style?: StyleProp<ViewStyle>;
 }
 
-const variantMap: Record<
-  BadgeVariant,
-  { bg: string; text: string }
-> = {
-  success: { bg: Colors.successSurface, text: Colors.success },
+const variantColors: Record<BadgeVariant, { bg: string; text: string }> = {
+  success: { bg: Colors.successSurface, text: Colors.secondary },
   warning: { bg: Colors.warningSurface, text: Colors.warning },
   danger: { bg: Colors.dangerSurface, text: Colors.danger },
   primary: { bg: Colors.primarySurface, text: Colors.primaryDark },
-  default: { bg: Colors.surfaceMedium, text: Colors.textSecondary },
+  default: { bg: Colors.surfaceMedium, text: Colors.textPrimary },
 };
 
-export function Badge({ label, variant = 'default', style }: BadgeProps) {
-  const colors = variantMap[variant];
+export function Badge({ label, variant = 'default', dot, style }: BadgeProps) {
+  const c = variantColors[variant];
   return (
-    <View style={[styles.badge, { backgroundColor: colors.bg }, style]}>
-      <View style={[styles.dot, { backgroundColor: colors.text }]} />
-      <Text style={[styles.text, { color: colors.text }]}>{label}</Text>
+    <View style={[styles.badge, { backgroundColor: c.bg }, style]}>
+      {dot && <View style={[styles.dot, { backgroundColor: c.text }]} />}
+      <Text style={[styles.text, { color: c.text }]}>{label}</Text>
     </View>
   );
 }
 
-// Helper: convierte estado de finca a variante
+const norm = (s: string) => (s || '').trim().toLowerCase();
+
+// Finca: 'Disponible' → success; cualquier otro estado → warning (web develop)
 export function estadoFincaVariant(estado: string): BadgeVariant {
-  switch (estado) {
-    case 'Disponible':
-      return 'success';
-    case 'Ocupada':
-      return 'warning';
-    case 'Mantenimiento':
-      return 'danger';
-    default:
-      return 'default';
-  }
+  const e = norm(estado);
+  if (!e) return 'default';
+  return e === 'disponible' ? 'success' : 'warning';
 }
 
-// Helper: convierte estado de reserva a variante
+// Reserva / pago: activas y pagadas → success; canceladas → danger; resto → warning
 export function estadoReservaVariant(estado: string): BadgeVariant {
-  switch (estado) {
-    case 'Confirmada':
-      return 'success';
-    case 'Pendiente':
-      return 'warning';
-    case 'Cancelada':
-      return 'danger';
-    case 'Completada':
-      return 'primary';
-    default:
-      return 'default';
-  }
+  const e = norm(estado);
+  if (['activa', 'confirmada', 'pagado', 'completada'].includes(e)) return 'success';
+  if (['cancelada', 'cancelado', 'anulada', 'anulado', 'rechazado'].includes(e)) return 'danger';
+  if (!e) return 'default';
+  return 'warning';
 }
 
 const styles = StyleSheet.create({
@@ -70,19 +56,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
+    gap: 6,
     borderRadius: Radius.full,
     paddingVertical: 4,
     paddingHorizontal: 10,
-    gap: 5,
   },
   dot: {
-    width: 5,
-    height: 5,
-    borderRadius: Radius.full,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   text: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontFamily: Fonts.semibold,
+    letterSpacing: 0.24,
   },
 });

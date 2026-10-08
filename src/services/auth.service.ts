@@ -1,9 +1,11 @@
+import * as Crypto from 'expo-crypto';
 import { supabase } from './supabase';
 import { SesionUsuario } from '../types';
 
 // =============================================================================
-// AUTH SERVICE — Compatible con RPC (SP_IniciarSesion / SP_RegistrarUsuario)
-// y PostgREST Directo
+// AUTH SERVICE — Mismas reglas que API-Renfi (develop): las contraseñas se
+// guardan en SHA-512 y el login acepta tanto texto plano (usuarios antiguos)
+// como hash, comparando en el servidor sin traer la contraseña al cliente.
 // =============================================================================
 
 export interface LoginResult {
@@ -26,6 +28,11 @@ export interface RegistroParams {
   idRol?: number;
 }
 
+/** SHA-512 en hex minúsculas (igual que CryptoService de la web). */
+export function hashSHA512(valor: string): Promise<string> {
+  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA512, valor);
+}
+
 function formatearErrorSupabase(err: any): string {
   if (!err) return 'Error desconocido.';
   const code = err.code ?? '';
@@ -34,174 +41,97 @@ function formatearErrorSupabase(err: any): string {
   if (code === '42501' || msg.includes('permission denied')) {
     return 'Permisos denegados en Supabase (42501). Ejecuta el script "supabase/setup_renfi_database.sql" en el SQL Editor de tu proyecto Supabase.';
   }
-  if (code === '23505' || msg.includes('unique') || msg.includes('duplicate') || msg.includes('Correo')) {
+  if (code === '23505' || msg.includes('duplicate')) {
     return 'Este correo electrónico ya está registrado. Intenta iniciar sesión.';
   }
   if (msg.includes('fetch') || msg.includes('Network request failed')) {
-    return 'No se pudo conectar a Supabase. Revisa tu conexión a internet o la URL del proyecto.';
+    return 'No fue posible conectar con el servidor. Intenta nuevamente en unos instantes.';
   }
   return msg;
 }
 
 // ─── Iniciar Sesión ───────────────────────────────────────────────────────────
 
-/**
- * Inicia sesión intentando primero el RPC SP_IniciarSesion y como alternativa
- * consultando la tabla Usuario directamente.
- */
-export async function iniciarSesion(
-  correo: string,
-  contrasena: string
-): Promise<LoginResult> {
-  const correoLimpio = correo.trim().toLowerCase();
-
+export async function iniciarSesion(correo: string, contrasena: string): Promise<LoginResult> {
   try {
-    // Intento 1: Procedimiento Almacenado RPC
-    const rpcRes = await supabase.rpc('SP_IniciarSesion', {
-      p_Correo: correoLimpio,
-      p_Contrasena: contrasena,
-    });
-
-    if (!rpcRes.error) {
-      const filas = Array.isArray(rpcRes.data) ? rpcRes.data : [];
-      if (filas.length > 0) {
-        return { data: filas[0] as SesionUsuario, error: null };
-      }
-      // El SP solo devuelve usuarios activos con credenciales válidas
-      return { data: null, error: 'Correo o contraseña incorrectos, o cuenta inactiva.' };
-    }
-
-    if (rpcRes.error.code === '42501') {
-      return { data: null, error: formatearErrorSupabase(rpcRes.error) };
-    }
-
-    // Intento 2: Consulta directa a la tabla Usuario (Fallback)
-    const { data: usuario, error: tableError } = await supabase
+    const hash = await hashSHA512(contrasena);
+    const { data: usuario, error } = await supabase
       .from('Usuario')
-      .select(`
-        NumeroDocumento,
-        IdRol,
-        NombreUsuario,
-        ApellidoUsuario,
-        Telefono,
-        Correo,
-        Estado,
-        Rol:IdRol (
-          IdRol,
-          NombreRol
-        )
-      `)
-      .ilike('Correo', correoLimpio)
-      .eq('Contrasena', contrasena)
+      .select('NumeroDocumento, IdRol, NombreUsuario, ApellidoUsuario, Telefono, Correo, Estado, Rol:IdRol (NombreRol)')
+      .ilike('Correo', correo.trim().toLowerCase())
+      .in('Contrasena', [contrasena, hash])
+      .limit(1)
       .maybeSingle();
 
-    if (tableError) {
-      return { data: null, error: formatearErrorSupabase(tableError) };
-    }
-
-    if (!usuario) {
-      return {
-        data: null,
-        error: 'Correo o contraseña incorrectos.',
-      };
-    }
+    if (error) return { data: null, error: formatearErrorSupabase(error) };
+    if (!usuario) return { data: null, error: 'Credenciales incorrectas. Verifica tu correo y contraseña.' };
 
     if (usuario.Estado && usuario.Estado.toLowerCase() !== 'activo') {
-      return {
-        data: null,
-        error: 'Tu cuenta se encuentra inactiva. Contacta al administrador.',
-      };
+      return { data: null, error: 'Tu cuenta se encuentra inactiva. Contacta al administrador.' };
     }
 
-    const sesion: SesionUsuario = {
-      NumeroDocumento: usuario.NumeroDocumento,
-      IdRol: usuario.IdRol ?? 2,
-      NombreUsuario: usuario.NombreUsuario,
-      ApellidoUsuario: usuario.ApellidoUsuario,
-      Telefono: usuario.Telefono,
-      Correo: usuario.Correo,
-      Estado: usuario.Estado ?? 'Activo',
-      NombreRol: (usuario.Rol as any)?.NombreRol ?? 'Cliente',
+    return {
+      data: {
+        NumeroDocumento: Number(usuario.NumeroDocumento),
+        IdRol: usuario.IdRol ?? 2,
+        NombreUsuario: usuario.NombreUsuario,
+        ApellidoUsuario: usuario.ApellidoUsuario,
+        Telefono: usuario.Telefono,
+        Correo: usuario.Correo,
+        Estado: usuario.Estado ?? 'Activo',
+        NombreRol: (usuario.Rol as any)?.NombreRol ?? 'Cliente',
+      },
+      error: null,
     };
-
-    return { data: sesion, error: null };
   } catch (err: any) {
     return { data: null, error: formatearErrorSupabase(err) };
   }
 }
 
-// ─── Verificar correo duplicado ───────────────────────────────────────────────
+// ─── Registrar Usuario ────────────────────────────────────────────────────────
 
-/**
- * Verifica si un correo ya existe en la tabla Usuario.
- */
-export async function correoExiste(correo: string): Promise<boolean> {
+export async function registrarUsuario(params: RegistroParams): Promise<RegisterResult> {
   try {
     const { data, error } = await supabase
       .from('Usuario')
-      .select('Correo')
-      .ilike('Correo', correo.trim())
-      .limit(1);
-
-    if (error || !data) return false;
-    return data.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-// ─── Registrar Usuario ────────────────────────────────────────────────────────
-
-/**
- * Registra un nuevo usuario via RPC o inserción directa en la tabla Usuario.
- */
-export async function registrarUsuario(
-  params: RegistroParams
-): Promise<RegisterResult> {
-  const correoLimpio = params.correo.trim().toLowerCase();
-  const idRol = params.idRol ?? 2; // 2 = Cliente
-
-  try {
-    // Intento 1: Procedimiento Almacenado RPC
-    const rpcRes = await supabase.rpc('SP_RegistrarUsuario', {
-      p_IdRol: idRol,
-      p_NombreUsuario: params.nombre.trim(),
-      p_ApellidoUsuario: params.apellido.trim(),
-      p_Telefono: params.telefono.trim() || null,
-      p_Correo: correoLimpio,
-      p_Contrasena: params.contrasena,
-      p_Estado: 'Activo',
-    });
-
-    if (!rpcRes.error && rpcRes.data) {
-      return { numeroDocumento: Number(rpcRes.data), error: null };
-    }
-
-    if (rpcRes.error && (rpcRes.error.code === '42501' || rpcRes.error.code === '23505')) {
-      return { numeroDocumento: null, error: formatearErrorSupabase(rpcRes.error) };
-    }
-
-    // Intento 2: Inserción directa en la tabla Usuario (Fallback)
-    const { data: nuevo, error: insertError } = await supabase
-      .from('Usuario')
       .insert({
-        IdRol: idRol,
+        IdRol: params.idRol ?? 2,
         NombreUsuario: params.nombre.trim(),
         ApellidoUsuario: params.apellido.trim(),
         Telefono: params.telefono.trim() || null,
-        Correo: correoLimpio,
-        Contrasena: params.contrasena,
+        Correo: params.correo.trim().toLowerCase(),
+        Contrasena: await hashSHA512(params.contrasena),
         Estado: 'Activo',
       })
       .select('NumeroDocumento')
       .single();
 
-    if (insertError) {
-      return { numeroDocumento: null, error: formatearErrorSupabase(insertError) };
-    }
-
-    return { numeroDocumento: nuevo ? Number(nuevo.NumeroDocumento) : null, error: null };
+    if (error) return { numeroDocumento: null, error: formatearErrorSupabase(error) };
+    return { numeroDocumento: Number(data.NumeroDocumento), error: null };
   } catch (err: any) {
     return { numeroDocumento: null, error: formatearErrorSupabase(err) };
+  }
+}
+
+// ─── Actualizar perfil ────────────────────────────────────────────────────────
+
+export interface ActualizarPerfilParams {
+  NombreUsuario: string;
+  ApellidoUsuario: string;
+  Telefono: string | null;
+}
+
+/**
+ * Actualiza los datos personales del usuario (el correo no se modifica).
+ */
+export async function actualizarUsuario(
+  numeroDocumento: number,
+  params: ActualizarPerfilParams
+): Promise<{ error: string | null }> {
+  try {
+    const { error } = await supabase.from('Usuario').update(params).eq('NumeroDocumento', numeroDocumento);
+    return { error: error ? formatearErrorSupabase(error) : null };
+  } catch (err: any) {
+    return { error: formatearErrorSupabase(err) };
   }
 }

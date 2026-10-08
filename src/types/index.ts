@@ -106,7 +106,7 @@ export interface SesionUsuario {
 }
 
 export type EstadoFinca = 'Disponible' | 'Ocupada' | 'Mantenimiento';
-export type EstadoReserva = 'Pendiente' | 'Confirmada' | 'Cancelada' | 'Completada';
+export type EstadoReserva = 'Activa' | 'Pendiente' | 'Confirmada' | 'Cancelada' | 'Completada';
 export type EstadoPago = 'Pendiente' | 'Pagado' | 'Rechazado';
 
 // =============================================================================
@@ -146,5 +146,6 @@ export interface CrearReservaDTO {
   FechaSalida: string;
   MontoReserva: number;
   IdMetodoDePago: number;
+  Huespedes?: number;
   Estado?: EstadoReserva;
 }

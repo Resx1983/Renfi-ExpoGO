@@ -1,5 +1,5 @@
 // Configurar timeout global para dar margen a compilación inicial de módulos
-jest.setTimeout(20000);
+jest.setTimeout(60000);
 
 process.env.EXPO_PUBLIC_SUPABASE_URL =
   process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
@@ -15,6 +15,7 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('expo-router', () => ({
   router: {
     push: jest.fn(),
+    navigate: jest.fn(),
     replace: jest.fn(),
     back: jest.fn(),
     canGoBack: jest.fn(() => true),
