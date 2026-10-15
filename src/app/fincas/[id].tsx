@@ -114,7 +114,14 @@ export default function DetalleFinca() {
     const tiles: { icon: IconName; label: string; value: string }[] = [
       { icon: 'pricetag-outline', label: 'Precio/noche', value: formatCOP(finca.Precio) },
       { icon: 'people-outline', label: 'Capacidad', value: `${finca.Capacidad} huéspedes` },
+      ...(finca.Habitaciones != null ? [{ icon: 'bed-outline' as IconName, label: 'Habitaciones', value: String(finca.Habitaciones) }] : []),
+      ...(finca.Banos != null ? [{ icon: 'water-outline' as IconName, label: 'Baños', value: String(finca.Banos) }] : []),
+      ...(finca.Camas != null ? [{ icon: 'moon-outline' as IconName, label: 'Camas', value: String(finca.Camas) }] : []),
     ];
+    const comodidades = finca.Comodidades ?? [];
+    const mapa = finca.Latitud != null && finca.Longitud != null
+      ? `https://www.google.com/maps/search/?api=1&query=${finca.Latitud},${finca.Longitud}`
+      : null;
     return (
       <>
         <Text style={styles.h1}>{finca.NombreFinca}</Text>
@@ -195,6 +202,23 @@ export default function DetalleFinca() {
             </View>
           ))}
         </View>
+
+        {comodidades.length > 0 && (
+          <>
+            <Text style={styles.h2}>Comodidades</Text>
+            <View style={styles.chips}>
+              {comodidades.map((c) => (
+                <Badge key={c} label={c} />
+              ))}
+            </View>
+          </>
+        )}
+        {!!finca.Reglas && (
+          <>
+            <Text style={styles.h2}>Reglas de la casa</Text>
+            <Text style={styles.info}>{finca.Reglas}</Text>
+          </>
+        )}
 
         <View style={styles.booking}>
           <Text style={styles.oculto} accessibilityRole="header">
@@ -316,6 +340,16 @@ export default function DetalleFinca() {
         <View>
           <Fila k="Municipio" v={finca.NombreMunicipio || 'No disponible'} />
           {!!finca.Estado && <Fila k="Estado" v={finca.Estado} />}
+          {!!finca.HoraEntrada && <Fila k="Hora de entrada" v={finca.HoraEntrada} />}
+          {!!finca.HoraSalida && <Fila k="Hora de salida" v={finca.HoraSalida} />}
+          {finca.NochesMinimas != null && finca.NochesMinimas > 1 && <Fila k="Estadía mínima" v={`${finca.NochesMinimas} noches`} />}
+          {finca.PermiteMascotas != null && <Fila k="Mascotas" v={finca.PermiteMascotas ? 'Permitidas' : 'No permitidas'} />}
+          {finca.PermiteEventos != null && <Fila k="Eventos" v={finca.PermiteEventos ? 'Permitidos' : 'No permitidos'} />}
+          {!!mapa && (
+            <Pressable accessibilityRole="link" style={styles.contacto} onPress={() => Linking.openURL(mapa)}>
+              <Text style={styles.contactoTxt}>Ver ubicación en el mapa</Text>
+            </Pressable>
+          )}
           {n > 0 ? (
             <Fila k="Reservas realizadas" v={String(n)} />
           ) : (
@@ -350,6 +384,7 @@ function Fila({ k, v }: { k: string; v: string }) {
 }
 
 const styles = StyleSheet.create({
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   page: { flex: 1, backgroundColor: Colors.surfaceBase },
   scroll: { padding: 16 },
   volver: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, alignSelf: 'flex-start' },
