@@ -20,7 +20,6 @@ const ICONOS: Record<string, IconName> = {
   pagos: 'card-outline',
   facturas: 'document-text-outline',
   'metodos-de-pago': 'wallet-outline',
-  imagenes: 'images-outline',
   municipios: 'location-outline',
   roles: 'shield-outline',
 };

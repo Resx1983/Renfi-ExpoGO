@@ -145,7 +145,6 @@ export interface CrearFincaDTO {
   Precio: number;
   Estado?: EstadoFinca;
   Calificacion?: number;
-  UrlImagen?: string | null;
 }
 
 export interface ModificarFincaDTO {
@@ -158,7 +157,6 @@ export interface ModificarFincaDTO {
   Precio?: number;
   Estado?: EstadoFinca;
   Calificacion?: number;
-  UrlImagen?: string | null;
 }
 
 export interface CrearReservaDTO {

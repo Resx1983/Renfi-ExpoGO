@@ -126,14 +126,6 @@ export const RECURSOS: Recurso[] = [
     ],
   },
   {
-    slug: 'imagenes', table: 'Imagen', idField: 'IdImagen', title: 'Imágenes',
-    description: 'Gestiona galerías y material multimedia',
-    fields: [
-      { name: 'UrlImagen', label: 'URL de la imagen', type: 'text', required: true },
-      { name: 'IdFinca', label: 'Finca', type: 'select', required: true, source: src('Finca', 'IdFinca', 'NombreFinca') },
-    ],
-  },
-  {
     slug: 'municipios', table: 'Municipio', idField: 'IdMunicipio', title: 'Municipios',
     description: 'Cobertura y estadísticas por municipio',
     fields: [{ name: 'NombreMunicipio', label: 'Nombre del municipio', type: 'text', required: true }],

@@ -112,7 +112,7 @@ export async function listarMunicipios(): Promise<MunicipiosResult> {
 // ─── CRUD DE FINCAS (ADMINISTRADOR) ───────────────────────────────────────────
 
 /**
- * Crea una nueva finca y asocia su imagen si se provee.
+ * Crea una nueva finca. Las imágenes se agregan después con subirImagenFinca.
  */
 export async function crearFinca(dto: import('../types').CrearFincaDTO): Promise<FincaOperacionResult> {
   const r = await api.post<{ id: number }>('/api/finca', {
@@ -129,10 +129,7 @@ export async function crearFinca(dto: import('../types').CrearFincaDTO): Promise
   if (r.error || !r.data) return { data: null, error: r.error };
   const idGenerado = Number(r.data.id);
   if (!idGenerado) return { data: null, error: 'No se pudo obtener el identificador de la nueva finca.' };
-
-  if (dto.UrlImagen && dto.UrlImagen.trim()) {
-    await api.post('/api/imagen', { IdFinca: idGenerado, UrlImagen: dto.UrlImagen.trim() });
-  }
+  // Las fotos se suben después, desde la galería de la finca (subirImagenFinca)
   return obtenerFincaPorId(idGenerado);
 }
 
@@ -143,21 +140,10 @@ export async function modificarFinca(
   idFinca: number,
   dto: import('../types').ModificarFincaDTO
 ): Promise<FincaOperacionResult> {
-  const { UrlImagen, ...campos } = dto;
-  const payload = Object.fromEntries(Object.entries(campos).filter(([, v]) => v !== undefined));
+  const payload = Object.fromEntries(Object.entries(dto).filter(([, v]) => v !== undefined));
 
   const r = await api.put(`/api/finca/${idFinca}`, payload);
   if (r.error) return { data: null, error: r.error };
-
-  if (UrlImagen && UrlImagen.trim()) {
-    const existentes = await api.get<{ IdImagen: number }[]>(`/api/imagen/finca/${idFinca}`);
-    const primera = existentes.data?.[0];
-    if (primera) {
-      await api.put(`/api/imagen/${primera.IdImagen}`, { UrlImagen: UrlImagen.trim(), IdFinca: idFinca });
-    } else {
-      await api.post('/api/imagen', { IdFinca: idFinca, UrlImagen: UrlImagen.trim() });
-    }
-  }
   return obtenerFincaPorId(idFinca);
 }
 

@@ -97,47 +97,37 @@ describe('Fincas Service (contra la API)', () => {
   });
 
   describe('crearFinca', () => {
-    test('crea la finca, registra su imagen y devuelve el detalle', async () => {
-      (api.post as jest.Mock).mockResolvedValueOnce(ok({ id: 5 }, 201)).mockResolvedValueOnce(ok({}, 201));
+    test('crea la finca y devuelve el detalle (las fotos se suben aparte)', async () => {
+      (api.post as jest.Mock).mockResolvedValueOnce(ok({ id: 5 }, 201));
       (api.get as jest.Mock).mockResolvedValueOnce(ok({ ...fincaApi, IdFinca: 5 }));
 
       const res = await crearFinca({
-        IdMunicipio: 2, NombreFinca: 'Nueva', Direccion: 'Calle 1', Capacidad: 10, Precio: 500000, UrlImagen: ' https://img/n.jpg ',
+        IdMunicipio: 2, NombreFinca: 'Nueva', Direccion: 'Calle 1', Capacidad: 10, Precio: 500000,
       } as any);
 
       expect((api.post as jest.Mock).mock.calls[0][0]).toBe('/api/finca');
       expect((api.post as jest.Mock).mock.calls[0][1]).toMatchObject({ NombreFinca: 'Nueva', Estado: 'Disponible', Calificacion: 5 });
-      expect(api.post).toHaveBeenCalledWith('/api/imagen', { IdFinca: 5, UrlImagen: 'https://img/n.jpg' });
+      expect(api.post).toHaveBeenCalledTimes(1); // ya no registra imágenes por URL
       expect(res.data?.IdFinca).toBe(5);
     });
 
-    test('si la API rechaza (p. ej. no es administrador) no intenta guardar la imagen', async () => {
+    test('si la API rechaza (p. ej. no es administrador) devuelve el error', async () => {
       (api.post as jest.Mock).mockResolvedValueOnce(fallo('No tienes permisos para realizar esta acción.', 403));
-      const res = await crearFinca({ IdMunicipio: 2, NombreFinca: 'X', Direccion: 'Y', Capacidad: 1, Precio: 1, UrlImagen: 'u' } as any);
+      const res = await crearFinca({ IdMunicipio: 2, NombreFinca: 'X', Direccion: 'Y', Capacidad: 1, Precio: 1 } as any);
       expect(res.error).toBe('No tienes permisos para realizar esta acción.');
       expect(api.post).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('modificarFinca y cambiarEstadoFinca', () => {
-    test('envía solo los campos definidos y actualiza la imagen existente', async () => {
+    test('envía solo los campos definidos', async () => {
       (api.put as jest.Mock).mockResolvedValue(ok({}));
-      (api.get as jest.Mock)
-        .mockResolvedValueOnce(ok([{ IdImagen: 3 }]))
-        .mockResolvedValueOnce(ok(fincaApi));
+      (api.get as jest.Mock).mockResolvedValueOnce(ok(fincaApi));
 
-      await modificarFinca(1, { NombreFinca: 'Renombrada', UrlImagen: 'https://img/nueva.jpg' } as any);
+      await modificarFinca(1, { NombreFinca: 'Renombrada', Precio: undefined } as any);
 
-      expect(api.put).toHaveBeenNthCalledWith(1, '/api/finca/1', { NombreFinca: 'Renombrada' });
-      expect(api.put).toHaveBeenNthCalledWith(2, '/api/imagen/3', { UrlImagen: 'https://img/nueva.jpg', IdFinca: 1 });
-    });
-
-    test('crea la imagen si la finca no tenía', async () => {
-      (api.put as jest.Mock).mockResolvedValue(ok({}));
-      (api.post as jest.Mock).mockResolvedValue(ok({}, 201));
-      (api.get as jest.Mock).mockResolvedValueOnce(ok([])).mockResolvedValueOnce(ok(fincaApi));
-      await modificarFinca(1, { UrlImagen: 'https://img/x.jpg' } as any);
-      expect(api.post).toHaveBeenCalledWith('/api/imagen', { IdFinca: 1, UrlImagen: 'https://img/x.jpg' });
+      expect(api.put).toHaveBeenCalledTimes(1);
+      expect(api.put).toHaveBeenCalledWith('/api/finca/1', { NombreFinca: 'Renombrada' });
     });
 
     test('cambiarEstadoFinca solo cambia el Estado', async () => {

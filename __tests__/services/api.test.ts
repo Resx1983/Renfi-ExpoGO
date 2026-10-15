@@ -66,8 +66,8 @@ describe('cliente HTTP de la API', () => {
 
   test('envía el cuerpo como JSON', async () => {
     fetchMock.mockResolvedValueOnce(respuesta(201, { id: 1 }));
-    const r = await api.post('/api/imagen', { UrlImagen: 'u' });
-    expect(fetchMock.mock.calls[0][1].body).toBe('{"UrlImagen":"u"}');
+    const r = await api.post('/api/municipio', { NombreMunicipio: 'Jardín' });
+    expect(fetchMock.mock.calls[0][1].body).toBe('{"NombreMunicipio":"Jardín"}');
     expect(r.data).toEqual({ id: 1 });
   });
   test('subir envía multipart sin Content-Type JSON (fetch pone el boundary) y con el token', async () => {

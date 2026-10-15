@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, FlatList, Modal, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, Pressable, FlatList, Modal, KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -215,7 +215,6 @@ export default function RecursoScreen() {
               <Text style={styles.cardTitle}>Registro {index + 1}</Text>
               <Badge label={`${cfg.idField}: ${item[cfg.idField]}`} />
             </View>
-            {cfg.slug === 'imagenes' && !!item.UrlImagen && <Image source={{ uri: item.UrlImagen }} style={styles.img} />}
             {campos.map((f) => (
               <View key={f.name} style={styles.line}>
                 <Text style={styles.label}>{f.label}</Text>
@@ -333,7 +332,6 @@ const styles = StyleSheet.create({
   line: { marginTop: 2 },
   label: { fontFamily: Fonts.regular, fontSize: 13, color: Colors.textSecondary },
   value: { ...Type.num, fontFamily: Fonts.semibold, fontSize: 15, color: Colors.textPrimary },
-  img: { width: '100%', height: 140, borderRadius: Radius.md, backgroundColor: Colors.surfaceMedium },
   overlay: { flex: 1, backgroundColor: Colors.overlay, justifyContent: 'center', padding: Spacing.gutter },
   sheet: { maxHeight: '90%', backgroundColor: Colors.surfaceLight, borderRadius: Radius.xxl, ...Shadows.xl },
   sheetHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 20, paddingBottom: 8 },
