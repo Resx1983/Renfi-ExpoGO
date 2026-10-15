@@ -223,6 +223,15 @@ export default function RecursoScreen() {
               </View>
             ))}
             <View style={styles.btns}>
+              {cfg.slug === 'fincas' && (
+                <Button
+                  title="Imágenes"
+                  variant="secondary"
+                  size="sm"
+                  icon="images-outline"
+                  onPress={() => router.push(`/administrador/imagenes-finca/${item[cfg.idField]}` as any)}
+                />
+              )}
               <Button title="Editar" variant="secondary" size="sm" onPress={() => abrirForm(item)} />
               <Button title="Eliminar" variant="dangerGhost" size="sm" onPress={() => setPorEliminar(item)} />
             </View>
