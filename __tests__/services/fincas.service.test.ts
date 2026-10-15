@@ -5,353 +5,156 @@ import {
   listarMunicipios,
   crearFinca,
   modificarFinca,
-  eliminarFinca,
   cambiarEstadoFinca,
+  eliminarFinca,
 } from '../../src/services/fincas.service';
-import { supabase } from '../../src/services/supabase';
+import { api } from '../../src/services/api';
 
-// Mock de la instancia de Supabase
-jest.mock('../../src/services/supabase', () => ({
-  supabase: {
-    rpc: jest.fn(),
-    from: jest.fn(),
-  },
+jest.mock('../../src/services/api', () => ({
+  api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 
-describe('Fincas Service (con Mocks)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+const ok = (data: any, status = 200) => ({ data, error: null, status });
+const fallo = (error: string, status = 500) => ({ data: null, error, status });
 
-  const mockFincaRpc = {
-    IdFinca: 1,
-    NombreFinca: 'Finca Campestre El Paraíso',
-    Direccion: 'Km 5 Guatapé',
-    InformacionAdicional: 'Hermosa finca colonial',
-    Capacidad: 16,
-    Precio: 850000,
-    Estado: 'Disponible',
-    Calificacion: 5,
-    IdMunicipio: 2,
-    NombreMunicipio: 'Guatapé',
-    IdPropietario: 1,
-    NombrePropietario: 'Admin',
-    ApellidoPropietario: 'Renfi',
-    TelefonoPropietario: '3001234567',
-    CorreoPropietario: 'admin@renfi.com',
-  };
+const fincaApi = {
+  IdFinca: 1,
+  IdMunicipio: 2,
+  NumeroDocumentoUsuario: 1,
+  NombreFinca: 'Finca El Paraíso',
+  Direccion: 'Km 5',
+  InformacionAdicional: 'Con jacuzzi',
+  Capacidad: 16,
+  Precio: 850000,
+  Estado: 'Disponible',
+  Calificacion: 5,
+  NombreMunicipio: 'Guatapé',
+  NombrePropietario: 'Admin',
+  ApellidoPropietario: 'Renfi',
+  Imagenes: [{ IdImagen: 1, UrlImagen: 'https://img/1.jpg', IdFinca: 1 }],
+};
+
+describe('Fincas Service (contra la API)', () => {
+  beforeEach(() => jest.resetAllMocks());
 
   describe('listarFincas', () => {
-    test('debe listar fincas usando el procedimiento almacenado SP_ListarFincas (RPC)', async () => {
-      (supabase.rpc as jest.Mock).mockResolvedValueOnce({
-        data: [mockFincaRpc],
-        error: null,
-      });
-
+    test('lista y normaliza las fincas de GET /api/finca', async () => {
+      (api.get as jest.Mock).mockResolvedValueOnce(ok([fincaApi]));
       const res = await listarFincas();
-
-      expect(supabase.rpc).toHaveBeenCalledWith('SP_ListarFincas');
+      expect(api.get).toHaveBeenCalledWith('/api/finca');
       expect(res.error).toBeNull();
       expect(res.data).toHaveLength(1);
-      expect(res.data?.[0].NombreFinca).toBe('Finca Campestre El Paraíso');
-      expect(res.data?.[0].NombreMunicipio).toBe('Guatapé');
+      expect(res.data![0]).toMatchObject({ IdFinca: 1, NombreMunicipio: 'Guatapé', Precio: 850000 });
+      expect(res.data![0].Imagenes).toHaveLength(1);
     });
 
-    test('debe realizar fallback a la tabla Finca con relaciones si el RPC no existe', async () => {
-      // 1. RPC no encontrado
-      (supabase.rpc as jest.Mock).mockResolvedValueOnce({
-        data: null,
-        error: { code: 'PGRST202', message: 'Function not found' },
-      });
-
-      // 2. Fallback a tabla
-      const mockChain = {
-        select: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValueOnce({
-          data: [
-            {
-              IdFinca: 2,
-              NombreFinca: 'Villa Los Samanes',
-              Direccion: 'Santa Fe',
-              InformacionAdicional: 'Clima cálido',
-              Capacidad: 20,
-              Precio: 1200000,
-              Estado: 'Disponible',
-              Calificacion: 5,
-              IdMunicipio: 3,
-              Municipio: { IdMunicipio: 3, NombreMunicipio: 'Santa Fe de Antioquia' },
-              NumeroDocumentoUsuario: 1,
-              Usuario: {
-                NumeroDocumento: 1,
-                NombreUsuario: 'Admin',
-                ApellidoUsuario: 'Renfi',
-                Telefono: '3001234567',
-                Correo: 'admin@renfi.com',
-              },
-              Imagenes: [
-                { IdImagen: 1, UrlImagen: 'https://ejemplo.com/finca2.jpg', IdFinca: 2 },
-              ],
-            },
-          ],
-          error: null,
-        }),
-      };
-      (supabase.from as jest.Mock).mockReturnValueOnce(mockChain);
-
+    test('rellena valores por defecto cuando faltan datos', async () => {
+      (api.get as jest.Mock).mockResolvedValueOnce(ok([{ IdFinca: 9 }]));
       const res = await listarFincas();
-
-      expect(res.error).toBeNull();
-      expect(res.data).toHaveLength(1);
-      expect(res.data?.[0].NombreFinca).toBe('Villa Los Samanes');
-      expect(res.data?.[0].NombreMunicipio).toBe('Santa Fe de Antioquia');
-      expect(res.data?.[0].Imagenes).toHaveLength(1);
+      expect(res.data![0]).toMatchObject({ NombreFinca: 'Finca sin nombre', NombreMunicipio: 'Antioquia', Imagenes: [] });
     });
 
-    test('debe devolver mensaje explicativo ante error de permisos 42501', async () => {
-      (supabase.rpc as jest.Mock).mockResolvedValueOnce({
-        data: null,
-        error: { code: '42501', message: 'permission denied for table Finca' },
-      });
-
+    test('propaga el error de la API', async () => {
+      (api.get as jest.Mock).mockResolvedValueOnce(fallo('No fue posible conectar con el servidor.', 0));
       const res = await listarFincas();
-
       expect(res.data).toBeNull();
-      expect(res.error).toContain('Permisos denegados en Supabase (42501)');
+      expect(res.error).toBe('No fue posible conectar con el servidor.');
     });
   });
 
-  describe('listarFincasDisponibles', () => {
-    test('debe filtrar y devolver únicamente las fincas con Estado = Disponible', async () => {
-      (supabase.rpc as jest.Mock).mockResolvedValueOnce({
-        data: [
-          { ...mockFincaRpc, IdFinca: 1, Estado: 'Disponible' },
-          { ...mockFincaRpc, IdFinca: 2, Estado: 'Ocupada' },
-          { ...mockFincaRpc, IdFinca: 3, Estado: 'Mantenimiento' },
-        ],
-        error: null,
-      });
-
-      const res = await listarFincasDisponibles();
-
-      expect(res.error).toBeNull();
-      expect(res.data).toHaveLength(1);
-      expect(res.data?.[0].IdFinca).toBe(1);
-    });
+  test('listarFincasDisponibles filtra Estado = Disponible', async () => {
+    (api.get as jest.Mock).mockResolvedValueOnce(ok([fincaApi, { ...fincaApi, IdFinca: 2, Estado: 'Mantenimiento' }]));
+    const res = await listarFincasDisponibles();
+    expect(res.data!.map((f) => f.IdFinca)).toEqual([1]);
   });
 
   describe('obtenerFincaPorId', () => {
-    test('debe obtener los detalles de una finca por su identificador', async () => {
-      const mockChain = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValueOnce({
-          data: {
-            IdFinca: 1,
-            NombreFinca: 'Finca Campestre El Paraíso',
-            Precio: 850000,
-            Capacidad: 16,
-            Estado: 'Disponible',
-            Calificacion: 5,
-            Municipio: { NombreMunicipio: 'Guatapé' },
-          },
-          error: null,
-        }),
-      };
-      (supabase.from as jest.Mock).mockReturnValueOnce(mockChain);
-
+    test('obtiene el detalle', async () => {
+      (api.get as jest.Mock).mockResolvedValueOnce(ok(fincaApi));
       const res = await obtenerFincaPorId(1);
-
-      expect(res.error).toBeNull();
-      expect(res.data?.IdFinca).toBe(1);
-      expect(res.data?.NombreMunicipio).toBe('Guatapé');
+      expect(api.get).toHaveBeenCalledWith('/api/finca/1');
+      expect(res.data?.NombreFinca).toBe('Finca El Paraíso');
     });
 
-    test('debe retornar error si la finca no existe', async () => {
-      const mockChain = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValueOnce({
-          data: null,
-          error: null,
-        }),
-      };
-      (supabase.from as jest.Mock).mockReturnValueOnce(mockChain);
-
-      const res = await obtenerFincaPorId(999);
-
-      expect(res.data).toBeNull();
-      expect(res.error).toBe('Finca no encontrada.');
+    test('404 se traduce a "Finca no encontrada."', async () => {
+      (api.get as jest.Mock).mockResolvedValueOnce(fallo('no existe', 404));
+      const res = await obtenerFincaPorId(99);
+      expect(res).toEqual({ data: null, error: 'Finca no encontrada.' });
     });
   });
 
-  describe('listarMunicipios', () => {
-    test('debe listar los municipios registrados', async () => {
-      (supabase.rpc as jest.Mock).mockResolvedValueOnce({
-        data: [
-          { IdMunicipio: 1, NombreMunicipio: 'Medellín' },
-          { IdMunicipio: 2, NombreMunicipio: 'Guatapé' },
-        ],
-        error: null,
-      });
-
-      const res = await listarMunicipios();
-
-      expect(res.error).toBeNull();
-      expect(res.data).toHaveLength(2);
-      expect(res.data?.[1].NombreMunicipio).toBe('Guatapé');
-    });
+  test('listarMunicipios ordena por nombre', async () => {
+    (api.get as jest.Mock).mockResolvedValueOnce(ok([
+      { IdMunicipio: 2, NombreMunicipio: 'Rionegro' },
+      { IdMunicipio: 1, NombreMunicipio: 'Guatapé' },
+    ]));
+    const res = await listarMunicipios();
+    expect(res.data!.map((m) => m.NombreMunicipio)).toEqual(['Guatapé', 'Rionegro']);
   });
 
-  describe('crearFinca()', () => {
-    test('debe crear una finca vía RPC e insertar imagen asociada', async () => {
-      (supabase.rpc as jest.Mock).mockResolvedValueOnce({
-        data: 77,
-        error: null,
-      });
-
-      const mockFrom = {
-        insert: jest.fn().mockResolvedValueOnce({ error: null }),
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValueOnce({
-          data: {
-            IdFinca: 77,
-            NombreFinca: 'Finca Nueva',
-            Capacidad: 10,
-            Precio: 500000,
-            Estado: 'Disponible',
-          },
-          error: null,
-        }),
-      };
-      (supabase.from as jest.Mock).mockReturnValue(mockFrom);
+  describe('crearFinca', () => {
+    test('crea la finca, registra su imagen y devuelve el detalle', async () => {
+      (api.post as jest.Mock).mockResolvedValueOnce(ok({ id: 5 }, 201)).mockResolvedValueOnce(ok({}, 201));
+      (api.get as jest.Mock).mockResolvedValueOnce(ok({ ...fincaApi, IdFinca: 5 }));
 
       const res = await crearFinca({
-        NombreFinca: 'Finca Nueva',
-        IdMunicipio: 2,
-        Capacidad: 10,
-        Precio: 500000,
-        UrlImagen: 'https://images.unsplash.com/test.jpg',
-      });
+        IdMunicipio: 2, NombreFinca: 'Nueva', Direccion: 'Calle 1', Capacidad: 10, Precio: 500000, UrlImagen: ' https://img/n.jpg ',
+      } as any);
 
-      expect(supabase.rpc).toHaveBeenCalledWith(
-        'SP_InsertarFinca',
-        expect.objectContaining({ p_NombreFinca: 'Finca Nueva' })
-      );
-      expect(supabase.from).toHaveBeenCalledWith('Imagen');
-      expect(res.error).toBeNull();
-      expect(res.data?.IdFinca).toBe(77);
+      expect((api.post as jest.Mock).mock.calls[0][0]).toBe('/api/finca');
+      expect((api.post as jest.Mock).mock.calls[0][1]).toMatchObject({ NombreFinca: 'Nueva', Estado: 'Disponible', Calificacion: 5 });
+      expect(api.post).toHaveBeenCalledWith('/api/imagen', { IdFinca: 5, UrlImagen: 'https://img/n.jpg' });
+      expect(res.data?.IdFinca).toBe(5);
+    });
+
+    test('si la API rechaza (p. ej. no es administrador) no intenta guardar la imagen', async () => {
+      (api.post as jest.Mock).mockResolvedValueOnce(fallo('No tienes permisos para realizar esta acción.', 403));
+      const res = await crearFinca({ IdMunicipio: 2, NombreFinca: 'X', Direccion: 'Y', Capacidad: 1, Precio: 1, UrlImagen: 'u' } as any);
+      expect(res.error).toBe('No tienes permisos para realizar esta acción.');
+      expect(api.post).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('modificarFinca() y cambiarEstadoFinca()', () => {
-    test('debe modificar atributos de la finca y actualizar su estado', async () => {
-      const mockUpdateQuery = {
-        eq: jest.fn().mockResolvedValue({ error: null }),
-      };
-      const mockSelectQuery = {
-        eq: jest.fn().mockReturnValue({
-          maybeSingle: jest.fn().mockResolvedValue({
-            data: {
-              IdFinca: 1,
-              NombreFinca: 'Finca Modificada',
-              Estado: 'Ocupada',
-              Precio: 500000,
-              Capacidad: 10,
-              Municipio: { NombreMunicipio: 'Guatapé' },
-              Usuario: {
-                Nombre: 'Admin',
-                Apellido: 'Renfi',
-                Telefono: '3001234567',
-                CorreoElectronico: 'admin@renfi.com',
-              },
-              Imagen: [],
-            },
-            error: null,
-          }),
-        }),
-      };
+  describe('modificarFinca y cambiarEstadoFinca', () => {
+    test('envía solo los campos definidos y actualiza la imagen existente', async () => {
+      (api.put as jest.Mock).mockResolvedValue(ok({}));
+      (api.get as jest.Mock)
+        .mockResolvedValueOnce(ok([{ IdImagen: 3 }]))
+        .mockResolvedValueOnce(ok(fincaApi));
 
-      (supabase.from as jest.Mock).mockImplementation((table: string) => {
-        if (table === 'Finca') {
-          return {
-            update: jest.fn().mockReturnValue(mockUpdateQuery),
-            select: jest.fn().mockReturnValue(mockSelectQuery),
-          };
-        }
-        return {};
-      });
+      await modificarFinca(1, { NombreFinca: 'Renombrada', UrlImagen: 'https://img/nueva.jpg' } as any);
 
-      const res = await cambiarEstadoFinca(1, 'Ocupada');
-
-      expect(supabase.from).toHaveBeenCalledWith('Finca');
-      expect(mockUpdateQuery.eq).toHaveBeenCalledWith('IdFinca', 1);
-      expect(res.error).toBeNull();
-      expect(res.data?.Estado).toBe('Ocupada');
+      expect(api.put).toHaveBeenNthCalledWith(1, '/api/finca/1', { NombreFinca: 'Renombrada' });
+      expect(api.put).toHaveBeenNthCalledWith(2, '/api/imagen/3', { UrlImagen: 'https://img/nueva.jpg', IdFinca: 1 });
     });
 
-    test('debe modificar los datos de una finca mediante modificarFinca', async () => {
-      const mockUpdateQuery = {
-        eq: jest.fn().mockResolvedValue({ error: null }),
-      };
-      const mockSelectQuery = {
-        eq: jest.fn().mockReturnValue({
-          maybeSingle: jest.fn().mockResolvedValue({
-            data: {
-              IdFinca: 2,
-              NombreFinca: 'Finca Actualizada',
-              Estado: 'Disponible',
-              Precio: 650000,
-              Capacidad: 12,
-              Municipio: { NombreMunicipio: 'Medellín' },
-              Usuario: { Nombre: 'Dueño' },
-              Imagen: [],
-            },
-            error: null,
-          }),
-        }),
-      };
+    test('crea la imagen si la finca no tenía', async () => {
+      (api.put as jest.Mock).mockResolvedValue(ok({}));
+      (api.post as jest.Mock).mockResolvedValue(ok({}, 201));
+      (api.get as jest.Mock).mockResolvedValueOnce(ok([])).mockResolvedValueOnce(ok(fincaApi));
+      await modificarFinca(1, { UrlImagen: 'https://img/x.jpg' } as any);
+      expect(api.post).toHaveBeenCalledWith('/api/imagen', { IdFinca: 1, UrlImagen: 'https://img/x.jpg' });
+    });
 
-      (supabase.from as jest.Mock).mockImplementation((table: string) => {
-        if (table === 'Finca') {
-          return {
-            update: jest.fn().mockReturnValue(mockUpdateQuery),
-            select: jest.fn().mockReturnValue(mockSelectQuery),
-          };
-        }
-        return {};
-      });
-
-      const res = await modificarFinca(2, {
-        NombreFinca: 'Finca Actualizada',
-        Precio: 650000,
-        Capacidad: 12,
-      });
-
-      expect(supabase.from).toHaveBeenCalledWith('Finca');
-      expect(mockUpdateQuery.eq).toHaveBeenCalledWith('IdFinca', 2);
-      expect(res.error).toBeNull();
-      expect(res.data?.NombreFinca).toBe('Finca Actualizada');
-      expect(res.data?.Precio).toBe(650000);
+    test('cambiarEstadoFinca solo cambia el Estado', async () => {
+      (api.put as jest.Mock).mockResolvedValue(ok({}));
+      (api.get as jest.Mock).mockResolvedValueOnce(ok({ ...fincaApi, Estado: 'Mantenimiento' }));
+      const res = await cambiarEstadoFinca(1, 'Mantenimiento');
+      expect(api.put).toHaveBeenCalledWith('/api/finca/1', { Estado: 'Mantenimiento' });
+      expect(res.data?.Estado).toBe('Mantenimiento');
     });
   });
 
-  describe('eliminarFinca()', () => {
-    test('debe eliminar la finca por ID', async () => {
-      const mockFrom = {
-        delete: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockResolvedValueOnce({ error: null }),
-      };
-      (supabase.from as jest.Mock).mockReturnValue(mockFrom);
+  describe('eliminarFinca', () => {
+    test('elimina por ID', async () => {
+      (api.delete as jest.Mock).mockResolvedValueOnce(ok({}));
+      expect(await eliminarFinca(1)).toEqual({ success: true, error: null });
+      expect(api.delete).toHaveBeenCalledWith('/api/finca/1');
+    });
 
-      const res = await eliminarFinca(1);
-
-      expect(supabase.from).toHaveBeenCalledWith('Finca');
-      expect(mockFrom.delete).toHaveBeenCalled();
-      expect(mockFrom.eq).toHaveBeenCalledWith('IdFinca', 1);
-      expect(res.success).toBe(true);
-      expect(res.error).toBeNull();
+    test('devuelve el error de la API', async () => {
+      (api.delete as jest.Mock).mockResolvedValueOnce(fallo('No se puede eliminar: existen registros relacionados.', 409));
+      expect(await eliminarFinca(1)).toEqual({ success: false, error: 'No se puede eliminar: existen registros relacionados.' });
     });
   });
 });
-

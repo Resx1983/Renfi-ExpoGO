@@ -1,248 +1,122 @@
 import {
+  listarMetodosDePago,
   crearReserva,
   listarReservas,
   listarReservasPorUsuario,
+  listarReservasPorFinca,
   actualizarEstadoReserva,
-  listarMetodosDePago,
 } from '../../src/services/reservas.service';
-import { supabase } from '../../src/services/supabase';
+import { api } from '../../src/services/api';
 
-jest.mock('../../src/services/supabase', () => ({
-  supabase: {
-    rpc: jest.fn(),
-    from: jest.fn(),
-  },
+jest.mock('../../src/services/api', () => ({
+  api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 
-describe('Reservas Service (con Mocks)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+const ok = (data: any, status = 200) => ({ data, error: null, status });
+const fallo = (error: string, status = 500) => ({ data: null, error, status });
+
+const reservaApi = {
+  IdReserva: 10,
+  IdFinca: 1,
+  NumeroDocumentoUsuario: 2,
+  FechaReserva: '2030-01-01T10:00:00',
+  FechaEntrada: '2030-01-10T00:00:00',
+  FechaSalida: '2030-01-12T00:00:00',
+  Estado: 'Activa',
+  MontoReserva: 1700000,
+  NombreFinca: 'Finca El Paraíso',
+  NombreMunicipio: 'Guatapé',
+  NombreCliente: 'Juan',
+  ApellidoCliente: 'Pérez',
+};
+
+describe('Reservas Service (contra la API)', () => {
+  beforeEach(() => jest.resetAllMocks());
+
+  test('listarMetodosDePago usa GET /api/metododepago', async () => {
+    const metodos = [{ IdMetodoDePago: 1, NombreMetodoDePago: 'Efectivo', PagoMixto: false }];
+    (api.get as jest.Mock).mockResolvedValueOnce(ok(metodos));
+    const res = await listarMetodosDePago();
+    expect(api.get).toHaveBeenCalledWith('/api/metododepago');
+    expect(res.data).toEqual(metodos);
   });
 
-  // ── 1. Metodos de pago ─────────────────────────────────────────────────────
-  describe('listarMetodosDePago()', () => {
-    test('debe retornar lista de métodos de pago vía RPC exitoso', async () => {
-      const mockMetodos = [
-        { IdMetodoDePago: 1, NombreMetodoDePago: 'Efectivo', PagoMixto: false },
-        { IdMetodoDePago: 4, NombreMetodoDePago: 'Nequi / Daviplata', PagoMixto: true },
-      ];
+  describe('crearReserva', () => {
+    const dto: any = {
+      IdFinca: 1, NumeroDocumentoUsuario: 2, FechaEntrada: '2030-01-10', FechaSalida: '2030-01-12',
+      MontoReserva: 1700000, IdMetodoDePago: 1, Huespedes: 4,
+    };
 
-      (supabase.rpc as jest.Mock).mockResolvedValueOnce({
-        data: mockMetodos,
-        error: null,
+    test('crea reserva y pago; no envía el documento ni el estado (los fija la API)', async () => {
+      (api.post as jest.Mock)
+        .mockResolvedValueOnce(ok({ IdReserva: 10, IdFactura: 20, reserva: reservaApi }, 201))
+        .mockResolvedValueOnce(ok({ IdPago: 30 }, 201));
+
+      const res = await crearReserva(dto);
+
+      const reservaEnviada = (api.post as jest.Mock).mock.calls[0][1];
+      expect(reservaEnviada).toEqual({
+        IdFinca: 1, FechaEntrada: '2030-01-10', FechaSalida: '2030-01-12', MontoReserva: 1700000, Huespedes: 4,
       });
-
-      const { data, error } = await listarMetodosDePago();
-
-      expect(supabase.rpc).toHaveBeenCalledWith('SP_ListarMetodosDePago');
-      expect(error).toBeNull();
-      expect(data).toHaveLength(2);
-      expect(data?.[1].NombreMetodoDePago).toBe('Nequi / Daviplata');
+      expect(api.post).toHaveBeenNthCalledWith(2, '/api/pago', { IdFactura: 20, IdMetodoDePago: 1, Monto: 1700000, EstadoPago: 'Pagado' });
+      expect(res).toMatchObject({ error: null, idFactura: 20, idPago: 30 });
+      expect(res.data?.IdReserva).toBe(10);
     });
 
-    test('debe usar fallback a tabla MetodoDePago si el RPC no está disponible', async () => {
-      (supabase.rpc as jest.Mock).mockResolvedValueOnce({
-        data: null,
-        error: { code: 'PGRST202', message: 'Function not found' },
-      });
-
-      const mockFrom = {
-        select: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValueOnce({
-          data: [{ IdMetodoDePago: 1, NombreMetodoDePago: 'Efectivo', PagoMixto: false }],
-          error: null,
-        }),
-      };
-      (supabase.from as jest.Mock).mockReturnValue(mockFrom);
-
-      const { data, error } = await listarMetodosDePago();
-
-      expect(supabase.from).toHaveBeenCalledWith('MetodoDePago');
-      expect(error).toBeNull();
-      expect(data).toHaveLength(1);
-    });
-  });
-
-  // ── 2. Crear reserva ───────────────────────────────────────────────────────
-  describe('crearReserva()', () => {
-    // Cadena PostgREST simulada: thenable para consultas de lista, terminales para single/maybeSingle
-    const query = (result: { data: any; error: any }) => {
-      const chain: any = { then: (ok: any, ko: any) => Promise.resolve(result).then(ok, ko) };
-      for (const m of ['select', 'insert', 'delete', 'eq', 'lt', 'gt']) chain[m] = jest.fn(() => chain);
-      chain.single = jest.fn().mockResolvedValue(result);
-      chain.maybeSingle = jest.fn().mockResolvedValue(result);
-      return chain;
-    };
-
-    const dto = {
-      IdFinca: 1,
-      NumeroDocumentoUsuario: 2,
-      FechaEntrada: '2026-10-10',
-      FechaSalida: '2026-10-12',
-      MontoReserva: 1700000,
-      IdMetodoDePago: 4,
-      Huespedes: 4,
-    };
-
-    const reservaDB = {
-      IdReserva: 101,
-      IdFinca: 1,
-      NumeroDocumentoUsuario: 2,
-      FechaReserva: '2026-10-06T18:00:00Z',
-      FechaEntrada: '2026-10-10',
-      FechaSalida: '2026-10-12',
-      Estado: 'Activa',
-      MontoReserva: 1700000,
-      Finca: { NombreFinca: 'Finca Campestre El Paraíso', IdMunicipio: 2, Municipio: { NombreMunicipio: 'Guatapé' } },
-      Usuario: { NombreUsuario: 'Cliente', ApellidoUsuario: 'Demo' },
-    };
-
-    // Reserva: 1ª llamada = consulta de cruces, 2ª = insert, 3ª = rollback (delete)
-    const montar = (opts: { cruces?: any[]; pago?: any; capacidad?: number }) => {
-      const reservaCalls = [
-        query({ data: opts.cruces ?? [], error: null }),
-        query({ data: reservaDB, error: null }),
-        query({ data: null, error: null }),
-      ];
-      const rollback = reservaCalls[2];
-      const tablas: Record<string, any> = {
-        Finca: query({ data: { Capacidad: opts.capacidad ?? 10 }, error: null }),
-        Factura: query({ data: { IdFactura: 501 }, error: null }),
-        Pago: query(opts.pago ?? { data: { IdPago: 801 }, error: null }),
-      };
-      (supabase.from as jest.Mock).mockImplementation((t: string) => (t === 'Reserva' ? reservaCalls.shift() : tablas[t]));
-      return { rollback };
-    };
-
-    test('inserta reserva Activa, factura y pago', async () => {
-      montar({});
-      const { data, idFactura, idPago, error } = await crearReserva(dto);
-      expect(error).toBeNull();
-      expect(data?.IdReserva).toBe(101);
-      expect(data?.Estado).toBe('Activa');
-      expect(data?.NombreMunicipio).toBe('Guatapé');
-      expect(idFactura).toBe(501);
-      expect(idPago).toBe(801);
+    test('muestra el error de la API (cruce de fechas, capacidad...) y no intenta pagar', async () => {
+      (api.post as jest.Mock).mockResolvedValueOnce(fallo('La finca ya tiene una reserva en las fechas seleccionadas', 409));
+      const res = await crearReserva(dto);
+      expect(res.data).toBeNull();
+      expect(res.error).toBe('La finca ya tiene una reserva en las fechas seleccionadas');
+      expect(api.post).toHaveBeenCalledTimes(1);
     });
 
-    test('ignora reservas canceladas o anuladas al validar cruces', async () => {
-      montar({ cruces: [{ Estado: 'Cancelada' }, { Estado: 'anulado' }] });
-      const { error } = await crearReserva(dto);
-      expect(error).toBeNull();
-    });
+    test('cancela la reserva si el pago falla', async () => {
+      (api.post as jest.Mock)
+        .mockResolvedValueOnce(ok({ IdReserva: 10, IdFactura: 20, reserva: reservaApi }, 201))
+        .mockResolvedValueOnce(fallo('No tienes permisos para pagar esta factura.', 403));
+      (api.put as jest.Mock).mockResolvedValueOnce(ok({}));
 
-    test('rechaza fechas que se cruzan con otra reserva activa', async () => {
-      montar({ cruces: [{ Estado: 'Activa' }] });
-      const { data, error } = await crearReserva(dto);
-      expect(data).toBeNull();
-      expect(error).toBe('La finca ya tiene una reserva en las fechas seleccionadas.');
-    });
+      const res = await crearReserva(dto);
 
-    test('rechaza más huéspedes que la capacidad', async () => {
-      montar({ capacidad: 3 });
-      const { error } = await crearReserva(dto);
-      expect(error).toBe('El número de huéspedes (4) supera la capacidad de la finca (3).');
-    });
-
-    test('rechaza salida anterior o igual a la entrada', async () => {
-      const { error } = await crearReserva({ ...dto, FechaSalida: '2026-10-10' });
-      expect(error).toBe('La fecha de salida debe ser posterior a la fecha de entrada.');
-      expect(supabase.from).not.toHaveBeenCalled();
-    });
-
-    test('revierte la reserva si el pago falla', async () => {
-      const { rollback } = montar({ pago: { data: null, error: { message: 'pago rechazado' } } });
-      const { data, error } = await crearReserva(dto);
-      expect(data).toBeNull();
-      expect(error).toBe('pago rechazado');
-      expect(rollback.delete).toHaveBeenCalled();
-      expect(rollback.eq).toHaveBeenCalledWith('IdReserva', 101);
+      expect(res.data).toBeNull();
+      expect(res.error).toBe('No tienes permisos para pagar esta factura.');
+      expect(api.put).toHaveBeenCalledWith('/api/reserva/10', { Estado: 'Cancelada' });
     });
   });
 
-  // ── 3. Listar reservas ─────────────────────────────────────────────────────
-  describe('listarReservas() y listarReservasPorUsuario()', () => {
-    test('debe listar todas las reservas para panel de Administrador', async () => {
-      const mockReservas = [
-        {
-          IdReserva: 1,
-          IdFinca: 1,
-          NumeroDocumentoUsuario: 2,
-          FechaReserva: '2026-10-01',
-          FechaEntrada: '2026-10-05',
-          FechaSalida: '2026-10-07',
-          Estado: 'Confirmada',
-          MontoReserva: 1700000,
-          NombreFinca: 'Finca Campestre El Paraíso',
-          NombreMunicipio: 'Guatapé',
-          NombreCliente: 'Juan',
-          ApellidoCliente: 'Pérez',
-        },
-      ];
-
-      (supabase.rpc as jest.Mock).mockResolvedValueOnce({
-        data: mockReservas,
-        error: null,
-      });
-
-      const { data, error } = await listarReservas();
-
-      expect(supabase.rpc).toHaveBeenCalledWith('SP_ListarReservas');
-      expect(error).toBeNull();
-      expect(data).toHaveLength(1);
-      expect(data?.[0].NombreFinca).toBe('Finca Campestre El Paraíso');
-    });
-
-    test('debe listar las reservas de un usuario específico', async () => {
-      const mockReservas = [
-        {
-          IdReserva: 10,
-          IdFinca: 2,
-          NumeroDocumentoUsuario: 3,
-          FechaReserva: '2026-10-02',
-          FechaEntrada: '2026-10-15',
-          FechaSalida: '2026-10-18',
-          Estado: 'Confirmada',
-          MontoReserva: 3600000,
-          NombreFinca: 'Villa Los Samanes',
-          NombreMunicipio: 'Santa Fe de Antioquia',
-          NombreCliente: 'Cliente',
-          ApellidoCliente: 'Demo',
-        },
-      ];
-
-      (supabase.rpc as jest.Mock).mockResolvedValueOnce({
-        data: mockReservas,
-        error: null,
-      });
-
-      const { data, error } = await listarReservasPorUsuario(3);
-
-      expect(supabase.rpc).toHaveBeenCalledWith('SP_ListarReservasPorUsuario', {
-        p_NumeroDocumentoUsuario: 3,
-      });
-      expect(error).toBeNull();
-      expect(data).toHaveLength(1);
-    });
+  test('listarReservas (administrador) usa GET /api/reserva', async () => {
+    (api.get as jest.Mock).mockResolvedValueOnce(ok([reservaApi]));
+    const res = await listarReservas();
+    expect(api.get).toHaveBeenCalledWith('/api/reserva');
+    expect(res.data![0]).toMatchObject({ IdReserva: 10, NombreFinca: 'Finca El Paraíso', NombreCliente: 'Juan' });
   });
 
-  // ── 4. Actualizar estado de reserva ────────────────────────────────────────
-  describe('actualizarEstadoReserva()', () => {
-    test('debe actualizar el estado de una reserva exitosamente', async () => {
-      const mockFrom = {
-        update: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockResolvedValueOnce({ error: null }),
-      };
-      (supabase.from as jest.Mock).mockReturnValue(mockFrom);
+  test('listarReservasPorUsuario usa la ruta del usuario', async () => {
+    (api.get as jest.Mock).mockResolvedValueOnce(ok([reservaApi]));
+    const res = await listarReservasPorUsuario(2);
+    expect(api.get).toHaveBeenCalledWith('/api/reserva/usuario/2');
+    expect(res.data).toHaveLength(1);
+  });
 
-      const { success, error } = await actualizarEstadoReserva(101, 'Cancelada');
+  test('listarReservasPorFinca devuelve solo fechas ocupadas (sin datos personales)', async () => {
+    (api.get as jest.Mock).mockResolvedValueOnce(ok([
+      { IdFinca: 1, FechaEntrada: '2030-01-10T00:00:00', FechaSalida: '2030-01-12T00:00:00' },
+    ]));
+    const res = await listarReservasPorFinca(1);
+    expect(api.get).toHaveBeenCalledWith('/api/reserva/finca/1/ocupadas');
+    expect(res.data![0]).toMatchObject({ Estado: 'Activa', NumeroDocumentoUsuario: null, FechaEntrada: '2030-01-10T00:00:00' });
+  });
 
-      expect(supabase.from).toHaveBeenCalledWith('Reserva');
-      expect(mockFrom.update).toHaveBeenCalledWith({ Estado: 'Cancelada' });
-      expect(mockFrom.eq).toHaveBeenCalledWith('IdReserva', 101);
-      expect(success).toBe(true);
-      expect(error).toBeNull();
-    });
+  test('actualizarEstadoReserva envía el nuevo estado', async () => {
+    (api.put as jest.Mock).mockResolvedValueOnce(ok({}));
+    const res = await actualizarEstadoReserva(10, 'Cancelada');
+    expect(api.put).toHaveBeenCalledWith('/api/reserva/10', { Estado: 'Cancelada' });
+    expect(res).toEqual({ success: true, error: null });
+  });
+
+  test('actualizarEstadoReserva devuelve el error (p. ej. reserva ajena)', async () => {
+    (api.put as jest.Mock).mockResolvedValueOnce(fallo('No tienes permisos para acceder a este recurso.', 403));
+    expect(await actualizarEstadoReserva(10, 'Cancelada')).toEqual({ success: false, error: 'No tienes permisos para acceder a este recurso.' });
   });
 });
-
