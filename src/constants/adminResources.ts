@@ -1,4 +1,4 @@
-// Configuración de los módulos CRUD del panel de administración (slug -> tabla Supabase).
+// Configuración de los módulos CRUD del panel de administración (slug -> tabla; el acceso va por API-Renfi).
 
 export type FieldType = 'text' | 'email' | 'password' | 'number' | 'date' | 'textarea' | 'select' | 'boolean';
 

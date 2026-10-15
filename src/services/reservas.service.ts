@@ -1,8 +1,10 @@
-import { supabase } from './supabase';
+import { api } from './api';
 import { Reserva, MetodoDePago, CrearReservaDTO, EstadoReserva } from '../types';
 
 // =============================================================================
-// RESERVAS SERVICE — Creación y Gestión de Reservas, Pagos y Facturación
+// RESERVAS SERVICE — Reservas, pagos y facturación sobre API-Renfi.
+// La API valida fechas, capacidad y cruces, calcula el monto (noches x precio)
+// y solo deja operar sobre reservas propias.
 // =============================================================================
 
 export interface ReservasResult {
@@ -27,20 +29,6 @@ export interface OperacionReservaResult {
   error: string | null;
 }
 
-function formatearErrorSupabase(err: any): string {
-  if (!err) return 'Error desconocido.';
-  const code = err.code ?? '';
-  const msg = err.message ?? String(err);
-
-  if (code === '42501' || msg.includes('permission denied')) {
-    return 'Permisos denegados en Supabase (42501).';
-  }
-  if (msg.includes('fetch') || msg.includes('Network request failed')) {
-    return 'No se pudo conectar a Supabase. Revisa tu conexión a internet.';
-  }
-  return msg;
-}
-
 function normalizarReserva(row: any): Reserva {
   return {
     IdReserva: Number(row.IdReserva),
@@ -51,302 +39,100 @@ function normalizarReserva(row: any): Reserva {
     FechaSalida: row.FechaSalida ? String(row.FechaSalida) : null,
     Estado: row.Estado ?? 'Pendiente',
     MontoReserva: Number(row.MontoReserva ?? 0),
-    NombreFinca: row.Finca?.NombreFinca ?? row.NombreFinca ?? 'Finca Renfi',
-    NombreMunicipio:
-      row.Finca?.Municipio?.NombreMunicipio ??
-      row.NombreMunicipio ??
-      'Antioquia',
-    NombreCliente: row.Usuario?.NombreUsuario ?? row.NombreCliente ?? 'Cliente',
-    ApellidoCliente: row.Usuario?.ApellidoUsuario ?? row.ApellidoCliente ?? '',
+    NombreFinca: row.NombreFinca ?? 'Finca Renfi',
+    NombreMunicipio: row.NombreMunicipio ?? 'Antioquia',
+    NombreCliente: row.NombreCliente ?? 'Cliente',
+    ApellidoCliente: row.ApellidoCliente ?? '',
   };
 }
 
 /**
- * Obtiene los métodos de pago disponibles (Nequi, Tarjeta, etc.).
+ * Obtiene los métodos de pago disponibles (requiere sesión).
  */
 export async function listarMetodosDePago(): Promise<MetodosPagoResult> {
-  try {
-    const rpcRes = await supabase.rpc('SP_ListarMetodosDePago');
-    if (!rpcRes.error && rpcRes.data) {
-      return { data: rpcRes.data as MetodoDePago[], error: null };
-    }
-
-    const { data, error } = await supabase
-      .from('MetodoDePago')
-      .select('IdMetodoDePago, NombreMetodoDePago, PagoMixto')
-      .order('IdMetodoDePago', { ascending: true });
-
-    if (error) {
-      return { data: null, error: formatearErrorSupabase(error) };
-    }
-
-    return { data: (data as MetodoDePago[]) || [], error: null };
-  } catch (err: any) {
-    return { data: null, error: formatearErrorSupabase(err) };
-  }
+  const r = await api.get<MetodoDePago[]>('/api/metododepago');
+  return r.error || !r.data ? { data: null, error: r.error } : { data: r.data, error: null };
 }
 
 const ESTADOS_INACTIVOS = ['cancelada', 'cancelado', 'anulada', 'anulado'];
 export const esInactiva = (estado: string | null | undefined) => ESTADOS_INACTIVOS.includes((estado ?? '').trim().toLowerCase());
 
 /**
- * Realiza una nueva reserva con las mismas reglas que API-Renfi (develop):
- * 1. Valida fechas, monto, capacidad y que no se cruce con otra reserva activa.
- * 2. Registra la 'Reserva', luego la 'Factura' y el 'Pago'.
- *    Si la factura o el pago fallan, se revierte la reserva.
+ * Realiza una nueva reserva a nombre del usuario con sesión iniciada:
+ * 1. La API registra la reserva y su factura (validando fechas, capacidad y cruces).
+ * 2. Se registra el pago de la factura.
+ *    Si el pago falla, se cancela la reserva para no dejarla a medias.
  */
 export async function crearReserva(dto: CrearReservaDTO): Promise<CrearReservaResult> {
-  try {
-    if (!(Number(dto.MontoReserva) > 0)) {
-      return { data: null, error: 'El monto de la reserva debe ser mayor a cero.' };
-    }
-    if (!dto.FechaEntrada || !dto.FechaSalida || dto.FechaSalida.slice(0, 10) <= dto.FechaEntrada.slice(0, 10)) {
-      return { data: null, error: 'La fecha de salida debe ser posterior a la fecha de entrada.' };
-    }
+  const reserva = await api.post<any>('/api/reserva', {
+    IdFinca: dto.IdFinca,
+    FechaEntrada: dto.FechaEntrada,
+    FechaSalida: dto.FechaSalida,
+    MontoReserva: dto.MontoReserva,
+    Huespedes: dto.Huespedes,
+  });
+  if (reserva.error || !reserva.data) return { data: null, error: reserva.error };
 
-    if (dto.Huespedes != null) {
-      const { data: finca } = await supabase.from('Finca').select('Capacidad').eq('IdFinca', dto.IdFinca).maybeSingle();
-      if (!Number.isInteger(dto.Huespedes) || dto.Huespedes < 1) {
-        return { data: null, error: 'El número de huéspedes debe ser al menos 1.' };
-      }
-      if (finca && dto.Huespedes > Number(finca.Capacidad)) {
-        return { data: null, error: `El número de huéspedes (${dto.Huespedes}) supera la capacidad de la finca (${finca.Capacidad}).` };
-      }
-    }
+  const idReserva = Number(reserva.data.IdReserva);
+  const idFactura = Number(reserva.data.IdFactura);
 
-    // ponytail: check-then-insert sin lock (igual que la API); con concurrencia real usar EXCLUDE constraint en BD
-    const { data: cruces, error: crucesError } = await supabase
-      .from('Reserva')
-      .select('Estado')
-      .eq('IdFinca', dto.IdFinca)
-      .lt('FechaEntrada', dto.FechaSalida)
-      .gt('FechaSalida', dto.FechaEntrada);
-    if (crucesError) return { data: null, error: formatearErrorSupabase(crucesError) };
-    if ((cruces ?? []).some((r) => !esInactiva(r.Estado))) {
-      return { data: null, error: 'La finca ya tiene una reserva en las fechas seleccionadas.' };
-    }
-
-    // 1. Crear Reserva
-    const { data: reservaData, error: reservaError } = await supabase
-      .from('Reserva')
-      .insert({
-        IdFinca: dto.IdFinca,
-        NumeroDocumentoUsuario: dto.NumeroDocumentoUsuario,
-        FechaEntrada: dto.FechaEntrada,
-        FechaSalida: dto.FechaSalida,
-        Estado: dto.Estado ?? 'Activa',
-        MontoReserva: dto.MontoReserva,
-      })
-      .select(`
-        IdReserva,
-        IdFinca,
-        NumeroDocumentoUsuario,
-        FechaReserva,
-        FechaEntrada,
-        FechaSalida,
-        Estado,
-        MontoReserva,
-        Finca:IdFinca (
-          NombreFinca,
-          IdMunicipio,
-          Municipio:IdMunicipio (NombreMunicipio)
-        ),
-        Usuario:NumeroDocumentoUsuario (
-          NombreUsuario,
-          ApellidoUsuario
-        )
-      `)
-      .single();
-
-    if (reservaError || !reservaData) {
-      return { data: null, error: formatearErrorSupabase(reservaError ?? 'Error al crear reserva.') };
-    }
-
-    const idReserva = Number(reservaData.IdReserva);
-    const revertir = async (err: any) => {
-      await supabase.from('Reserva').delete().eq('IdReserva', idReserva);
-      return { data: null, error: formatearErrorSupabase(err ?? 'Error al procesar la reserva.') };
-    };
-
-    // 2. Generar Factura
-    const { data: facturaData, error: facturaError } = await supabase
-      .from('Factura')
-      .insert({ IdReserva: idReserva, Total: dto.MontoReserva })
-      .select('IdFactura')
-      .single();
-    if (facturaError || !facturaData) return revertir(facturaError);
-    const idFactura = Number(facturaData.IdFactura);
-
-    // 3. Registrar Pago
-    const { data: pagoData, error: pagoError } = await supabase
-      .from('Pago')
-      .insert({
-        IdFactura: idFactura,
-        IdMetodoDePago: dto.IdMetodoDePago,
-        Monto: Math.round(dto.MontoReserva),
-        EstadoPago: 'Pagado',
-      })
-      .select('IdPago')
-      .single();
-    if (pagoError || !pagoData) return revertir(pagoError);
-
-    return {
-      data: normalizarReserva(reservaData),
-      idFactura,
-      idPago: Number(pagoData.IdPago),
-      error: null,
-    };
-  } catch (err: any) {
-    return { data: null, error: formatearErrorSupabase(err) };
+  const pago = await api.post<any>('/api/pago', {
+    IdFactura: idFactura,
+    IdMetodoDePago: dto.IdMetodoDePago,
+    Monto: Math.round(dto.MontoReserva),
+    EstadoPago: 'Pagado',
+  });
+  if (pago.error || !pago.data) {
+    await api.put(`/api/reserva/${idReserva}`, { Estado: 'Cancelada' });
+    return { data: null, error: pago.error };
   }
+
+  return {
+    data: normalizarReserva(reserva.data.reserva ?? reserva.data),
+    idFactura,
+    idPago: Number(pago.data.IdPago ?? pago.data.id),
+    error: null,
+  };
 }
 
 /**
- * Lista todas las reservas (para panel de Administrador).
+ * Lista todas las reservas (panel de Administrador).
  */
 export async function listarReservas(): Promise<ReservasResult> {
-  try {
-    // Intento 1: RPC SP_ListarReservas
-    const rpcRes = await supabase.rpc('SP_ListarReservas');
-    if (!rpcRes.error && rpcRes.data) {
-      return {
-        data: (rpcRes.data as any[]).map(normalizarReserva),
-        error: null,
-      };
-    }
-
-    // Intento 2: Consulta directa
-    const { data, error } = await supabase
-      .from('Reserva')
-      .select(`
-        IdReserva,
-        IdFinca,
-        NumeroDocumentoUsuario,
-        FechaReserva,
-        FechaEntrada,
-        FechaSalida,
-        Estado,
-        MontoReserva,
-        Finca:IdFinca (
-          NombreFinca,
-          IdMunicipio,
-          Municipio:IdMunicipio (NombreMunicipio)
-        ),
-        Usuario:NumeroDocumentoUsuario (
-          NombreUsuario,
-          ApellidoUsuario
-        )
-      `)
-      .order('IdReserva', { ascending: false });
-
-    if (error) {
-      return { data: null, error: formatearErrorSupabase(error) };
-    }
-
-    return { data: (data || []).map(normalizarReserva), error: null };
-  } catch (err: any) {
-    return { data: null, error: formatearErrorSupabase(err) };
-  }
+  const r = await api.get<any[]>('/api/reserva');
+  return r.error || !r.data ? { data: null, error: r.error } : { data: r.data.map(normalizarReserva), error: null };
 }
 
 /**
- * Lista las reservas de un usuario específico (para "Mis Reservas" del cliente).
+ * Lista las reservas de un usuario (para "Mis Reservas"). Solo puede pedir las propias.
  */
-export async function listarReservasPorUsuario(
-  numeroDocumento: number
-): Promise<ReservasResult> {
-  try {
-    // Intento 1: RPC
-    const rpcRes = await supabase.rpc('SP_ListarReservasPorUsuario', {
-      p_NumeroDocumentoUsuario: numeroDocumento,
-    });
-
-    if (!rpcRes.error && rpcRes.data) {
-      return {
-        data: (rpcRes.data as any[]).map(normalizarReserva),
-        error: null,
-      };
-    }
-
-    // Intento 2: Consulta directa
-    const { data, error } = await supabase
-      .from('Reserva')
-      .select(`
-        IdReserva,
-        IdFinca,
-        NumeroDocumentoUsuario,
-        FechaReserva,
-        FechaEntrada,
-        FechaSalida,
-        Estado,
-        MontoReserva,
-        Finca:IdFinca (
-          NombreFinca,
-          IdMunicipio,
-          Municipio:IdMunicipio (NombreMunicipio)
-        ),
-        Usuario:NumeroDocumentoUsuario (
-          NombreUsuario,
-          ApellidoUsuario
-        )
-      `)
-      .eq('NumeroDocumentoUsuario', numeroDocumento)
-      .order('IdReserva', { ascending: false });
-
-    if (error) {
-      return { data: null, error: formatearErrorSupabase(error) };
-    }
-
-    return { data: (data || []).map(normalizarReserva), error: null };
-  } catch (err: any) {
-    return { data: null, error: formatearErrorSupabase(err) };
-  }
+export async function listarReservasPorUsuario(numeroDocumento: number): Promise<ReservasResult> {
+  const r = await api.get<any[]>(`/api/reserva/usuario/${numeroDocumento}`);
+  return r.error || !r.data ? { data: null, error: r.error } : { data: r.data.map(normalizarReserva), error: null };
 }
 
 /**
- * Permite cambiar el estado de una reserva (Confirmada, Cancelada, Completada).
+ * Cambia el estado de una reserva. Un cliente solo puede cancelar la suya.
  */
 export async function actualizarEstadoReserva(
   idReserva: number,
   nuevoEstado: EstadoReserva
 ): Promise<OperacionReservaResult> {
-  try {
-    const { error } = await supabase
-      .from('Reserva')
-      .update({ Estado: nuevoEstado })
-      .eq('IdReserva', idReserva);
-
-    if (error) {
-      return { success: false, error: formatearErrorSupabase(error) };
-    }
-
-    return { success: true, error: null };
-  } catch (err: any) {
-    return { success: false, error: formatearErrorSupabase(err) };
-  }
+  const r = await api.put(`/api/reserva/${idReserva}`, { Estado: nuevoEstado });
+  return { success: !r.error, error: r.error };
 }
 
-
 /**
- * Lista las reservas activas (no canceladas) de una finca, para marcar
- * los días ocupados en el calendario de reserva.
+ * Reservas activas de una finca, para marcar los días ocupados en el calendario.
+ * La API solo devuelve las fechas, sin datos personales.
  */
 export async function listarReservasPorFinca(idFinca: number): Promise<ReservasResult> {
-  try {
-    const { data, error } = await supabase
-      .from('Reserva')
-      .select('IdReserva, IdFinca, NumeroDocumentoUsuario, FechaReserva, FechaEntrada, FechaSalida, Estado, MontoReserva')
-      .eq('IdFinca', idFinca);
-
-    if (error) {
-      return { data: null, error: formatearErrorSupabase(error) };
-    }
-
-    const activas = (data || [])
-      .map(normalizarReserva)
-      .filter((r) => !esInactiva(r.Estado));
-    return { data: activas, error: null };
-  } catch (err: any) {
-    return { data: null, error: formatearErrorSupabase(err) };
-  }
+  const r = await api.get<{ IdFinca: number; FechaEntrada: string; FechaSalida: string }[]>(`/api/reserva/finca/${idFinca}/ocupadas`);
+  if (r.error || !r.data) return { data: null, error: r.error };
+  return {
+    data: r.data.map((o, i) =>
+      normalizarReserva({ ...o, IdReserva: -(i + 1), Estado: 'Activa', NumeroDocumentoUsuario: null })
+    ),
+    error: null,
+  };
 }

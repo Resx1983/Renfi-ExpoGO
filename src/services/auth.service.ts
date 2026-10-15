@@ -1,11 +1,10 @@
 import * as Crypto from 'expo-crypto';
-import { supabase } from './supabase';
+import { api, guardarToken } from './api';
 import { SesionUsuario } from '../types';
 
 // =============================================================================
-// AUTH SERVICE — Mismas reglas que API-Renfi (develop): las contraseñas se
-// guardan en SHA-512 y el login acepta tanto texto plano (usuarios antiguos)
-// como hash, comparando en el servidor sin traer la contraseña al cliente.
+// AUTH SERVICE — Inicia sesión contra API-Renfi. La API verifica la contraseña
+// (bcrypt) y devuelve un JWT que el cliente HTTP adjunta a cada petición.
 // =============================================================================
 
 export interface LoginResult {
@@ -24,93 +23,62 @@ export interface RegistroParams {
   telefono: string;
   correo: string;
   contrasena: string;
-  /** IdRol: 1 = Admin, 2 = Cliente, 3 = Propietario — por defecto Cliente (2) */
-  idRol?: number;
 }
 
-/** SHA-512 en hex minúsculas (igual que CryptoService de la web). */
+/** SHA-512 en hex minúsculas; la API acepta contraseñas en claro o en este formato. */
 export function hashSHA512(valor: string): Promise<string> {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA512, valor);
-}
-
-function formatearErrorSupabase(err: any): string {
-  if (!err) return 'Error desconocido.';
-  const code = err.code ?? '';
-  const msg = err.message ?? String(err);
-
-  if (code === '42501' || msg.includes('permission denied')) {
-    return 'Permisos denegados en Supabase (42501). Ejecuta el script "supabase/setup_renfi_database.sql" en el SQL Editor de tu proyecto Supabase.';
-  }
-  if (code === '23505' || msg.includes('duplicate')) {
-    return 'Este correo electrónico ya está registrado. Intenta iniciar sesión.';
-  }
-  if (msg.includes('fetch') || msg.includes('Network request failed')) {
-    return 'No fue posible conectar con el servidor. Intenta nuevamente en unos instantes.';
-  }
-  return msg;
 }
 
 // ─── Iniciar Sesión ───────────────────────────────────────────────────────────
 
 export async function iniciarSesion(correo: string, contrasena: string): Promise<LoginResult> {
-  try {
-    const hash = await hashSHA512(contrasena);
-    const { data: usuario, error } = await supabase
-      .from('Usuario')
-      .select('NumeroDocumento, IdRol, NombreUsuario, ApellidoUsuario, Telefono, Correo, Estado, Rol:IdRol (NombreRol)')
-      .ilike('Correo', correo.trim().toLowerCase())
-      .in('Contrasena', [contrasena, hash])
-      .limit(1)
-      .maybeSingle();
-
-    if (error) return { data: null, error: formatearErrorSupabase(error) };
-    if (!usuario) return { data: null, error: 'Credenciales incorrectas. Verifica tu correo y contraseña.' };
-
-    if (usuario.Estado && usuario.Estado.toLowerCase() !== 'activo') {
-      return { data: null, error: 'Tu cuenta se encuentra inactiva. Contacta al administrador.' };
-    }
-
+  const r = await api.post<{ token: string; usuario: any }>('/api/usuario/login', {
+    Correo: correo.trim().toLowerCase(),
+    Contrasena: contrasena,
+  });
+  if (r.error || !r.data) {
     return {
-      data: {
-        NumeroDocumento: Number(usuario.NumeroDocumento),
-        IdRol: usuario.IdRol ?? 2,
-        NombreUsuario: usuario.NombreUsuario,
-        ApellidoUsuario: usuario.ApellidoUsuario,
-        Telefono: usuario.Telefono,
-        Correo: usuario.Correo,
-        Estado: usuario.Estado ?? 'Activo',
-        NombreRol: (usuario.Rol as any)?.NombreRol ?? 'Cliente',
-      },
-      error: null,
+      data: null,
+      error: r.status === 401 ? 'Credenciales incorrectas. Verifica tu correo y contraseña.' : r.error,
     };
-  } catch (err: any) {
-    return { data: null, error: formatearErrorSupabase(err) };
   }
+
+  const u = r.data.usuario;
+  await guardarToken(r.data.token);
+  return {
+    data: {
+      NumeroDocumento: Number(u.NumeroDocumento),
+      IdRol: u.IdRol ?? 2,
+      NombreUsuario: u.NombreUsuario,
+      ApellidoUsuario: u.ApellidoUsuario,
+      Telefono: u.Telefono || null,
+      Correo: u.Correo,
+      Estado: u.Estado ?? 'Activo',
+      NombreRol: u.NombreRol ?? 'Cliente',
+    },
+    error: null,
+  };
 }
 
 // ─── Registrar Usuario ────────────────────────────────────────────────────────
 
+/** El registro público siempre crea una cuenta de Cliente (la API ignora cualquier rol enviado). */
 export async function registrarUsuario(params: RegistroParams): Promise<RegisterResult> {
-  try {
-    const { data, error } = await supabase
-      .from('Usuario')
-      .insert({
-        IdRol: params.idRol ?? 2,
-        NombreUsuario: params.nombre.trim(),
-        ApellidoUsuario: params.apellido.trim(),
-        Telefono: params.telefono.trim() || null,
-        Correo: params.correo.trim().toLowerCase(),
-        Contrasena: await hashSHA512(params.contrasena),
-        Estado: 'Activo',
-      })
-      .select('NumeroDocumento')
-      .single();
-
-    if (error) return { numeroDocumento: null, error: formatearErrorSupabase(error) };
-    return { numeroDocumento: Number(data.NumeroDocumento), error: null };
-  } catch (err: any) {
-    return { numeroDocumento: null, error: formatearErrorSupabase(err) };
+  const r = await api.post<{ id: number; NumeroDocumento?: number }>('/api/usuario', {
+    NombreUsuario: params.nombre.trim(),
+    ApellidoUsuario: params.apellido.trim(),
+    Telefono: params.telefono.trim() || null,
+    Correo: params.correo.trim().toLowerCase(),
+    Contrasena: params.contrasena,
+  });
+  if (r.error || !r.data) {
+    return {
+      numeroDocumento: null,
+      error: r.status === 409 ? 'Este correo electrónico ya está registrado. Intenta iniciar sesión.' : r.error,
+    };
   }
+  return { numeroDocumento: Number(r.data.NumeroDocumento ?? r.data.id), error: null };
 }
 
 // ─── Actualizar perfil ────────────────────────────────────────────────────────
@@ -122,16 +90,16 @@ export interface ActualizarPerfilParams {
 }
 
 /**
- * Actualiza los datos personales del usuario (el correo no se modifica).
+ * Actualiza los datos personales del usuario (el correo, el rol y el estado no se modifican desde la app).
  */
 export async function actualizarUsuario(
   numeroDocumento: number,
   params: ActualizarPerfilParams
 ): Promise<{ error: string | null }> {
-  try {
-    const { error } = await supabase.from('Usuario').update(params).eq('NumeroDocumento', numeroDocumento);
-    return { error: error ? formatearErrorSupabase(error) : null };
-  } catch (err: any) {
-    return { error: formatearErrorSupabase(err) };
-  }
+  const r = await api.put(`/api/usuario/${numeroDocumento}`, {
+    NombreUsuario: params.NombreUsuario,
+    ApellidoUsuario: params.ApellidoUsuario,
+    Telefono: params.Telefono ?? '',
+  });
+  return { error: r.error };
 }
