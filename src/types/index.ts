@@ -43,13 +43,35 @@ export interface Finca {
   ApellidoPropietario?: string;
   TelefonoPropietario?: string;
   CorreoPropietario?: string;
+  // Ficha completa
+  Habitaciones?: number;
+  Banos?: number;
+  Camas?: number;
+  NochesMinimas?: number;
+  Comodidades?: string[];
+  Reglas?: string | null;
+  HoraEntrada?: string | null; // HH:MM
+  HoraSalida?: string | null; // HH:MM
+  PermiteMascotas?: boolean;
+  PermiteEventos?: boolean;
+  Latitud?: number | null;
+  Longitud?: number | null;
+  /** URL de la portada (o null si la finca no tiene imágenes) */
+  UrlPortada?: string | null;
+  /** Galería: portada primero y luego por orden */
   Imagenes?: Imagen[];
 }
 
 export interface Imagen {
   IdImagen: number;
+  /** URL final lista para mostrar (Supabase Storage o externa) */
   UrlImagen: string;
   IdFinca: number;
+  Orden?: number;
+  EsPortada?: boolean;
+  TextoAlternativo?: string | null;
+  Ancho?: number | null;
+  Alto?: number | null;
 }
 
 export interface MetodoDePago {

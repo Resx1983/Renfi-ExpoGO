@@ -7,11 +7,15 @@ import {
   modificarFinca,
   cambiarEstadoFinca,
   eliminarFinca,
+  listarImagenesFinca,
+  subirImagenFinca,
+  establecerPortada,
+  eliminarImagen,
 } from '../../src/services/fincas.service';
 import { api } from '../../src/services/api';
 
 jest.mock('../../src/services/api', () => ({
-  api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
+  api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn(), subir: jest.fn() },
 }));
 
 const ok = (data: any, status = 200) => ({ data, error: null, status });
@@ -155,6 +159,70 @@ describe('Fincas Service (contra la API)', () => {
     test('devuelve el error de la API', async () => {
       (api.delete as jest.Mock).mockResolvedValueOnce(fallo('No se puede eliminar: existen registros relacionados.', 409));
       expect(await eliminarFinca(1)).toEqual({ success: false, error: 'No se puede eliminar: existen registros relacionados.' });
+    });
+  });
+  describe('ficha completa', () => {
+    test('normaliza los campos nuevos', async () => {
+      (api.get as jest.Mock).mockResolvedValueOnce(ok([{
+        ...fincaApi, Habitaciones: '6', Banos: 4, Camas: 9, NochesMinimas: 2, Comodidades: ['Piscina', 'BBQ'],
+        Reglas: 'No fiestas', HoraEntrada: '15:00', HoraSalida: '11:00', PermiteMascotas: true, PermiteEventos: false,
+        Latitud: '6.244203', Longitud: -75.581212, UrlPortada: 'https://cdn/p.webp',
+      }]));
+      const f = (await listarFincas()).data![0];
+      expect(f).toMatchObject({
+        Habitaciones: 6, Banos: 4, Camas: 9, NochesMinimas: 2, Comodidades: ['Piscina', 'BBQ'], Reglas: 'No fiestas',
+        HoraEntrada: '15:00', PermiteMascotas: true, PermiteEventos: false, Latitud: 6.244203, Longitud: -75.581212,
+        UrlPortada: 'https://cdn/p.webp',
+      });
+    });
+
+    test('una finca sin ficha (API vieja) no rompe: valores seguros', async () => {
+      (api.get as jest.Mock).mockResolvedValueOnce(ok([{ IdFinca: 3 }]));
+      const f = (await listarFincas()).data![0];
+      expect(f.Comodidades).toEqual([]);
+      expect(f.Latitud).toBeNull();
+      expect(f.Habitaciones).toBeUndefined();
+      expect(f.PermiteMascotas).toBe(false);
+    });
+  });
+
+  describe('galería de imágenes', () => {
+    const archivo = { uri: 'file:///foto.jpg', nombre: 'foto.jpg', tipo: 'image/jpeg' };
+
+    test('listarImagenesFinca pide la galería de la finca', async () => {
+      (api.get as jest.Mock).mockResolvedValueOnce(ok([{ IdImagen: 1, UrlImagen: 'u', IdFinca: 1, EsPortada: true }]));
+      const r = await listarImagenesFinca(1);
+      expect(api.get).toHaveBeenCalledWith('/api/imagen/finca/1');
+      expect(r.data![0].EsPortada).toBe(true);
+    });
+
+    test('subirImagenFinca envía el archivo y el texto alternativo', async () => {
+      (api.subir as jest.Mock).mockResolvedValueOnce(ok({ imagen: { IdImagen: 7, UrlImagen: 'https://cdn/x.webp', IdFinca: 1 } }, 201));
+      const r = await subirImagenFinca(1, archivo, { textoAlternativo: ' Piscina ', esPortada: true });
+      expect(api.subir).toHaveBeenCalledWith('/api/finca/1/imagenes', archivo, { TextoAlternativo: 'Piscina', EsPortada: 'true' });
+      expect(r.data?.IdImagen).toBe(7);
+    });
+
+    test('subirImagenFinca sin opciones no envía campos extra', async () => {
+      (api.subir as jest.Mock).mockResolvedValueOnce(ok({ imagen: { IdImagen: 8 } }, 201));
+      await subirImagenFinca(1, archivo);
+      expect(api.subir).toHaveBeenCalledWith('/api/finca/1/imagenes', archivo, {});
+    });
+
+    test('muestra el error de la API (límite, formato, tamaño)', async () => {
+      (api.subir as jest.Mock).mockResolvedValueOnce(fallo('Cada finca admite máximo 10 imágenes.', 409));
+      const r = await subirImagenFinca(1, archivo);
+      expect(r).toEqual({ data: null, error: 'Cada finca admite máximo 10 imágenes.' });
+    });
+
+    test('establecerPortada y eliminarImagen usan las rutas de imagen', async () => {
+      (api.put as jest.Mock).mockResolvedValueOnce(ok({ imagen: { IdImagen: 3, EsPortada: true } }));
+      expect((await establecerPortada(3)).data?.EsPortada).toBe(true);
+      expect(api.put).toHaveBeenCalledWith('/api/imagen/3', { EsPortada: true });
+
+      (api.delete as jest.Mock).mockResolvedValueOnce(ok({}));
+      expect(await eliminarImagen(3)).toEqual({ success: true, error: null });
+      expect(api.delete).toHaveBeenCalledWith('/api/imagen/3');
     });
   });
 });

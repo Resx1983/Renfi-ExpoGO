@@ -1,5 +1,5 @@
-import { api } from './api';
-import { Finca, Municipio } from '../types';
+import { api, type ArchivoSubida } from './api';
+import { Finca, Imagen, Municipio } from '../types';
 
 // =============================================================================
 // FINCAS SERVICE — Catálogo público y CRUD de administrador sobre API-Renfi
@@ -53,6 +53,19 @@ function normalizarFinca(row: any): Finca {
     TelefonoPropietario: row.TelefonoPropietario ?? null,
     CorreoPropietario: row.CorreoPropietario ?? null,
     Imagenes: Array.isArray(row.Imagenes) ? row.Imagenes : [],
+    UrlPortada: row.UrlPortada ?? null,
+    Habitaciones: row.Habitaciones != null ? Number(row.Habitaciones) : undefined,
+    Banos: row.Banos != null ? Number(row.Banos) : undefined,
+    Camas: row.Camas != null ? Number(row.Camas) : undefined,
+    NochesMinimas: row.NochesMinimas != null ? Number(row.NochesMinimas) : undefined,
+    Comodidades: Array.isArray(row.Comodidades) ? row.Comodidades : [],
+    Reglas: row.Reglas ?? null,
+    HoraEntrada: row.HoraEntrada ?? null,
+    HoraSalida: row.HoraSalida ?? null,
+    PermiteMascotas: row.PermiteMascotas ?? false,
+    PermiteEventos: row.PermiteEventos ?? false,
+    Latitud: row.Latitud != null ? Number(row.Latitud) : null,
+    Longitud: row.Longitud != null ? Number(row.Longitud) : null,
   };
 }
 
@@ -164,4 +177,49 @@ export async function cambiarEstadoFinca(
   nuevoEstado: import('../types').EstadoFinca
 ): Promise<FincaOperacionResult> {
   return modificarFinca(idFinca, { Estado: nuevoEstado });
+}
+
+// ─── GALERÍA DE IMÁGENES (ADMINISTRADOR) ──────────────────────────────────────
+// Los archivos se suben a la API, que los valida, optimiza (WebP, máx. 1600 px)
+// y los aloja en Supabase Storage. Máximo 10 imágenes por finca.
+
+export interface ImagenesResult {
+  data: Imagen[] | null;
+  error: string | null;
+}
+
+export interface ImagenOperacionResult {
+  data: Imagen | null;
+  error: string | null;
+}
+
+/** Galería de la finca: portada primero y luego por orden. */
+export async function listarImagenesFinca(idFinca: number): Promise<ImagenesResult> {
+  const r = await api.get<Imagen[]>(`/api/imagen/finca/${idFinca}`);
+  return r.error || !r.data ? { data: null, error: r.error } : { data: r.data, error: null };
+}
+
+/** Sube una foto a la galería. La primera de la finca queda como portada. */
+export async function subirImagenFinca(
+  idFinca: number,
+  archivo: ArchivoSubida,
+  opciones: { textoAlternativo?: string; esPortada?: boolean } = {}
+): Promise<ImagenOperacionResult> {
+  const campos: Record<string, string> = {};
+  if (opciones.textoAlternativo?.trim()) campos.TextoAlternativo = opciones.textoAlternativo.trim();
+  if (opciones.esPortada) campos.EsPortada = 'true';
+  const r = await api.subir<{ imagen: Imagen }>(`/api/finca/${idFinca}/imagenes`, archivo, campos);
+  return r.error || !r.data ? { data: null, error: r.error } : { data: r.data.imagen, error: null };
+}
+
+/** Marca una imagen como portada de su finca (la anterior deja de serlo). */
+export async function establecerPortada(idImagen: number): Promise<ImagenOperacionResult> {
+  const r = await api.put<{ imagen: Imagen }>(`/api/imagen/${idImagen}`, { EsPortada: true });
+  return r.error || !r.data ? { data: null, error: r.error } : { data: r.data.imagen, error: null };
+}
+
+/** Elimina una imagen (fila y archivo). Si era la portada, la siguiente la reemplaza. */
+export async function eliminarImagen(idImagen: number): Promise<{ success: boolean; error: string | null }> {
+  const r = await api.delete(`/api/imagen/${idImagen}`);
+  return { success: !r.error, error: r.error };
 }
