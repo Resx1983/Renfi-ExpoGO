@@ -39,7 +39,13 @@
           "imageWidth": 200
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Renfi necesita acceder a tus fotos para subir las imágenes de las fincas."
+        }
+      ]
     ]
   }
 }
