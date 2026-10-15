@@ -1,10 +1,7 @@
 // Configurar timeout global para dar margen a compilación inicial de módulos
 jest.setTimeout(60000);
 
-process.env.EXPO_PUBLIC_SUPABASE_URL =
-  process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-process.env.EXPO_PUBLIC_SUPABASE_KEY =
-  process.env.EXPO_PUBLIC_SUPABASE_KEY || 'placeholder-key';
+process.env.EXPO_PUBLIC_API_URL = 'http://api.test';
 
 // Mock para AsyncStorage
 jest.mock('@react-native-async-storage/async-storage', () =>
