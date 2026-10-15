@@ -70,4 +70,24 @@ describe('cliente HTTP de la API', () => {
     expect(fetchMock.mock.calls[0][1].body).toBe('{"UrlImagen":"u"}');
     expect(r.data).toEqual({ id: 1 });
   });
+  test('subir envía multipart sin Content-Type JSON (fetch pone el boundary) y con el token', async () => {
+    await guardarToken('jwt-3');
+    fetchMock.mockResolvedValueOnce(respuesta(201, { imagen: { IdImagen: 1 } }));
+
+    const r = await api.subir('/api/finca/1/imagenes', { uri: 'file:///f.jpg', nombre: 'f.jpg', tipo: 'image/jpeg' }, { TextoAlternativo: 'Sala' });
+
+    const [url, opciones] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://api.test/api/finca/1/imagenes');
+    expect(opciones.method).toBe('POST');
+    expect(opciones.body).toBeInstanceOf(FormData);
+    expect(opciones.headers['Content-Type']).toBeUndefined();
+    expect(opciones.headers.Authorization).toBe('Bearer jwt-3');
+    expect(r.data).toEqual({ imagen: { IdImagen: 1 } });
+  });
+
+  test('subir devuelve el mensaje de la API ante un 413 (imagen demasiado grande)', async () => {
+    fetchMock.mockResolvedValueOnce(respuesta(413, { message: 'La imagen supera el tamaño máximo de 5 MB.' }));
+    const r = await api.subir('/api/finca/1/imagenes', { uri: 'file:///f.jpg', nombre: 'f.jpg', tipo: 'image/jpeg' });
+    expect(r).toMatchObject({ data: null, status: 413, error: 'La imagen supera el tamaño máximo de 5 MB.' });
+  });
 });
