@@ -57,6 +57,7 @@ describe('AuthContext (con AsyncStorage Mocks)', () => {
     };
 
     await AsyncStorage.setItem('@renfi_usuario_sesion', JSON.stringify(sesionPrevia));
+    await AsyncStorage.setItem('@renfi_token', 'jwt-de-prueba');
 
     const { findByTestId } = await render(
       <AuthProvider>
@@ -103,6 +104,7 @@ describe('AuthContext (con AsyncStorage Mocks)', () => {
     };
 
     await AsyncStorage.setItem('@renfi_usuario_sesion', JSON.stringify(sesionPrevia));
+    await AsyncStorage.setItem('@renfi_token', 'jwt-de-prueba');
 
     const { findByTestId, getByTestId } = await render(
       <AuthProvider>
@@ -120,6 +122,20 @@ describe('AuthContext (con AsyncStorage Mocks)', () => {
     const clearedUser = await findByTestId('user-name');
     expect(clearedUser.props.children).toBe('Invitado');
     expect(AsyncStorage.removeItem).toHaveBeenCalledWith('@renfi_usuario_sesion');
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith('@renfi_token');
+  });
+
+  test('una sesión guardada sin token (versión anterior) se descarta', async () => {
+    await AsyncStorage.setItem('@renfi_usuario_sesion', JSON.stringify({ NumeroDocumento: 2, NombreUsuario: 'Carlos' }));
+
+    const { findByTestId } = await render(
+      <AuthProvider>
+        <ConsumerComponent />
+      </AuthProvider>
+    );
+
+    const userName = await findByTestId('user-name');
+    expect(userName.props.children).toBe('Invitado');
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith('@renfi_usuario_sesion');
   });
 });
-
