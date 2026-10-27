@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 // =============================================================================
 // TEMA / DESIGN SYSTEM - RENFI MOBILE
 // "La Finca Abierta / Casa de Campo" — espejo de src/styles.css + DESIGN.md
@@ -92,13 +93,20 @@ export const Fonts = {
 } as const;
 
 // Sombras "alero": teñidas de verde, siempre con desplazamiento vertical
-const alero = (y: number, radius: number, opacity: number, elevation: number, color: string = Colors.secondary) => ({
-  shadowColor: color,
-  shadowOffset: { width: 0, height: y },
-  shadowOpacity: opacity,
-  shadowRadius: radius,
-  elevation,
-});
+const alero = (y: number, radius: number, opacity: number, elevation: number, color: string = Colors.secondary) => {
+  if (Platform.OS === 'web') {
+    // En web react-native-web deprecó shadow*; boxShadow necesita rgba
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16));
+    return { boxShadow: `0px ${y}px ${radius}px rgba(${r},${g},${b},${opacity})` } as object;
+  }
+  return {
+    shadowColor: color,
+    shadowOffset: { width: 0, height: y },
+    shadowOpacity: opacity,
+    shadowRadius: radius,
+    elevation,
+  };
+};
 
 export const Shadows = {
   sm: alero(1, 3, 0.06, 1),

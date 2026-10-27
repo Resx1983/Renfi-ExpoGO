@@ -15,12 +15,14 @@ export function LogoMark({ size = 38, variant = 'default' }: { size?: number; va
   const techo = footer ? Colors.primary : Colors.primaryLight;
   const casa = footer ? Colors.secondary : Colors.surfaceLight;
   return (
-    <Svg width={size} height={size} viewBox="0 0 32 32" accessibilityElementsHidden importantForAccessibility="no">
-      <Rect width={32} height={32} rx={9} fill={fondo} />
-      <Path d="M6 15.5 16 7l10 8.5" stroke={techo} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <Path d="M9.5 14.6V24h13v-9.4" stroke={casa} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <Path d="M14 24v-3.8a2 2 0 0 1 4 0V24" stroke={casa} strokeWidth={2} strokeLinecap="round" fill="none" />
-    </Svg>
+    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Svg width={size} height={size} viewBox="0 0 32 32">
+        <Rect width={32} height={32} rx={9} fill={fondo} />
+        <Path d="M6 15.5 16 7l10 8.5" stroke={techo} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        <Path d="M9.5 14.6V24h13v-9.4" stroke={casa} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        <Path d="M14 24v-3.8a2 2 0 0 1 4 0V24" stroke={casa} strokeWidth={2} strokeLinecap="round" fill="none" />
+      </Svg>
+    </View>
   );
 }
 
@@ -38,7 +40,7 @@ export function Zocalo({ style }: { style?: StyleProp<ViewStyle> }) {
 /** Silueta de cordillera (3 capas) para el fondo del hero. */
 export function Cordillera({ height = 160, style }: { height?: number; style?: StyleProp<ViewStyle> }) {
   return (
-    <View style={[{ height }, style]} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no">
+    <View style={[{ height, pointerEvents: 'none' }, style]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       <Svg width="100%" height="100%" viewBox="0 0 1440 240" preserveAspectRatio="none">
         <Path
           fill="rgba(45,106,79,0.42)"
