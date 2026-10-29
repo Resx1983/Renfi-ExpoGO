@@ -11,6 +11,7 @@ jest.mock('../../src/services/auth.service', () => ({ iniciarSesion: jest.fn() }
 jest.mock('../../src/context/AuthContext', () => ({
   useAuth: () => ({ usuario: null, cargando: false, setUsuario: mockSetUsuario, cerrarSesion: jest.fn() }),
   esAdmin: (u: any) => Number(u?.IdRol) === 1,
+  esDueno: () => false,
 }));
 
 const usuario = { NumeroDocumento: 1, IdRol: 2, NombreUsuario: 'Ana', ApellidoUsuario: 'Paz', Correo: 'a@b.co', Estado: 'Activo' };

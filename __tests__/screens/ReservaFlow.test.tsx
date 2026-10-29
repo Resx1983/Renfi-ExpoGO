@@ -14,6 +14,7 @@ jest.mock('../../src/context/AuthContext', () => ({
     cerrarSesion: jest.fn(),
   }),
   esAdmin: () => false,
+  esDueno: () => false,
 }));
 
 jest.mock('../../src/services/reservas.service', () => ({

@@ -3,7 +3,7 @@ import { View, Text, Pressable, Modal, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, type Href } from 'expo-router';
-import { useAuth, esAdmin } from '../context/AuthContext';
+import { useAuth, esAdmin, esDueno } from '../context/AuthContext';
 import { Colors, Radius, Fonts, Spacing, Shadows } from '../constants/theme';
 import { LogoMark } from './Brand';
 import { Button } from './ui/Button';
@@ -68,6 +68,9 @@ export function AppHeader() {
                   </Pressable>
                   {esAdmin(usuario) && (
                     <Button title="Panel admin" icon="grid-outline" variant="ghost" size="sm" onPress={() => go('/administrador')} />
+                  )}
+                  {esDueno(usuario) && (
+                    <Button title="Mi finca" icon="home-outline" variant="ghost" size="sm" onPress={() => go('/mi-finca')} />
                   )}
                   <Button
                     title="Cerrar sesión"

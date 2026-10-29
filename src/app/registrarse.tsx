@@ -6,6 +6,7 @@ import { AuthShell } from '../components/AuthShell';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Checkbox } from '../components/ui/Checkbox';
+import { Select } from '../components/ui/Select';
 import { Alert } from '../components/ui/Feedback';
 import { registrarUsuario } from '../services/auth.service';
 import { Colors, Fonts } from '../constants/theme';
@@ -15,6 +16,7 @@ const VACIO = { nombre: '', apellido: '', correo: '', telefono: '', contrasena: 
 
 export default function RegistrarseScreen() {
   const [f, setF] = useState(VACIO);
+  const [tipoCuenta, setTipoCuenta] = useState<'cliente' | 'dueno'>('cliente');
   const [acepto, setAcepto] = useState(false);
   const [ver, setVer] = useState(false);
   const [errores, setErrores] = useState<Record<string, string>>({});
@@ -49,6 +51,7 @@ export default function RegistrarseScreen() {
         telefono: f.telefono.trim(),
         correo: f.correo.trim().toLowerCase(),
         contrasena: f.contrasena,
+        tipoCuenta,
       });
       if (res.error) {
         setError(res.error);
@@ -57,6 +60,7 @@ export default function RegistrarseScreen() {
       setExito(true);
       setF(VACIO);
       setAcepto(false);
+      setTipoCuenta('cliente');
       timer.current = setTimeout(() => router.replace('/iniciar-sesion'), 1800);
     } catch {
       setError('Ocurrió un error al registrar al usuario. Inténtalo nuevamente.');
@@ -128,6 +132,15 @@ export default function RegistrarseScreen() {
         />
         {toggle}
       </View>
+      <Select
+        label="¿Cómo quieres usar Renfi?"
+        value={tipoCuenta}
+        options={[
+          { label: 'Quiero reservar fincas', value: 'cliente' },
+          { label: 'Quiero publicar mi finca', value: 'dueno' },
+        ]}
+        onChange={setTipoCuenta}
+      />
       <Checkbox
         label="Acepto los términos y condiciones y la política de tratamiento de datos personales de Renfi."
         checked={acepto}

@@ -9,6 +9,12 @@ export function esAdmin(u: SesionUsuario | null): boolean {
   return (u.NombreRol ?? '').toLowerCase().includes('admin') || Number(u.IdRol) === 1;
 }
 
+// Igual que la API: el rol se reconoce por nombre ("Dueño de finca"; "Propietario" es el nombre anterior)
+export function esDueno(u: SesionUsuario | null): boolean {
+  const rol = (u?.NombreRol ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+  return rol === 'dueno de finca' || rol === 'propietario';
+}
+
 // =============================================================================
 // CONTEXTO DE SESIÓN — Usuario autenticado con persistencia en AsyncStorage
 // =============================================================================

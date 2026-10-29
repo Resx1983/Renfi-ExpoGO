@@ -65,7 +65,7 @@ describe('Auth Service (contra la API)', () => {
       expect(res).toEqual({ numeroDocumento: 7, error: null });
       const enviado = (api.post as jest.Mock).mock.calls[0][1];
       expect(enviado).toEqual({
-        NombreUsuario: 'Ana', ApellidoUsuario: 'Gómez', Telefono: null, Correo: 'ana@mail.com', Contrasena: 'Secreta123',
+        NombreUsuario: 'Ana', ApellidoUsuario: 'Gómez', Telefono: null, Correo: 'ana@mail.com', Contrasena: 'Secreta123', TipoCuenta: 'cliente',
       });
       expect(enviado).not.toHaveProperty('IdRol');
       expect(enviado).not.toHaveProperty('Estado');
@@ -90,5 +90,13 @@ describe('Auth Service (contra la API)', () => {
 
   test('hashSHA512 delega en expo-crypto', async () => {
     expect(await hashSHA512('abc')).toBe('sha512(abc)');
+  });
+});
+
+describe('registrarUsuario como dueño de finca', () => {
+  test('envía TipoCuenta "dueno"', async () => {
+    (api.post as jest.Mock).mockResolvedValueOnce({ data: { id: 8 }, error: null, status: 201 });
+    await registrarUsuario({ nombre: 'Luis', apellido: 'Paz', telefono: '3001234567', correo: 'l@p.com', contrasena: 'Secreta123', tipoCuenta: 'dueno' });
+    expect((api.post as jest.Mock).mock.calls.at(-1)[1].TipoCuenta).toBe('dueno');
   });
 });

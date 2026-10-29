@@ -139,6 +139,22 @@ export const RECURSOS: Recurso[] = [
 
 export const getRecurso = (slug?: string) => RECURSOS.find((r) => r.slug === slug);
 
+/** Finca del dueño: sin propietario ni calificación (la API los fija). */
+export const RECURSO_FINCA_DUENO: Recurso = (() => {
+  const f = RECURSOS.find((r) => r.slug === 'fincas')!;
+  return { ...f, title: 'Mis fincas', description: 'Crea tus fincas y personaliza fotos, comodidades y reglas',
+    fields: f.fields.filter((c) => !['NumeroDocumentoUsuario', 'Calificacion'].includes(c.name)) };
+})();
+
+export type Panel = 'admin' | 'dueno';
+
+export const DUENO_NAV = [
+  { slug: '', title: 'Resumen', description: 'Cómo va tu negocio de un vistazo' },
+  { slug: 'fincas', title: 'Mis fincas', description: RECURSO_FINCA_DUENO.description },
+  { slug: 'reservas', title: 'Reservas', description: 'Reservas recibidas: confirma, finaliza o cancela' },
+  { slug: 'ingresos', title: 'Ingresos', description: 'Pagos recibidos por tus fincas' },
+];
+
 /** Ítems del drawer: Inicio + cada recurso. */
 export const ADMIN_NAV = [
   { slug: '', title: 'Inicio', description: 'Resumen general y reportes clave' },

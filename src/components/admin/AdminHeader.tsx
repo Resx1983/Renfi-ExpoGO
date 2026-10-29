@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, type Href } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
-import { ADMIN_NAV } from '../../constants/adminResources';
+import { ADMIN_NAV, DUENO_NAV, type Panel } from '../../constants/adminResources';
 import { LogoMark } from '../Brand';
 import { Button } from '../ui/Button';
 import { Colors, Radius, Fonts, Spacing, Shadows, Type } from '../../constants/theme';
@@ -22,15 +22,18 @@ const ICONOS: Record<string, IconName> = {
   'metodos-de-pago': 'wallet-outline',
   municipios: 'location-outline',
   roles: 'shield-outline',
+  ingresos: 'cash-outline',
 };
 
 // Barra superior del panel admin + drawer verde. `slug` = sección actual ('' = Inicio).
-export function AdminHeader({ slug = '' }: Readonly<{ slug?: string }>) {
+export function AdminHeader({ slug = '', panel = 'admin' }: Readonly<{ slug?: string; panel?: Panel }>) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { usuario, cerrarSesion } = useAuth();
   const [open, setOpen] = useState(false);
-  const actual = ADMIN_NAV.find((n) => n.slug === slug) ?? ADMIN_NAV[0];
+  const nav = panel === 'dueno' ? DUENO_NAV : ADMIN_NAV;
+  const base = panel === 'dueno' ? '/mi-finca' : '/administrador';
+  const actual = nav.find((n) => n.slug === slug) ?? nav[0];
   const nombre = usuario ? `${usuario.NombreUsuario} ${usuario.ApellidoUsuario}`.trim() : '';
 
   const go = (href: Href, replace = false) => {
@@ -65,11 +68,11 @@ export function AdminHeader({ slug = '' }: Readonly<{ slug?: string }>) {
               <LogoMark size={36} />
               <View>
                 <Text style={styles.brandTitle}>Renfi</Text>
-                <Text style={styles.brandSub}>Administración</Text>
+                <Text style={styles.brandSub}>{panel === 'dueno' ? 'Mi finca' : 'Administración'}</Text>
               </View>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.nav}>
-              {ADMIN_NAV.map((n) => {
+              {nav.map((n) => {
                 const on = n.slug === slug;
                 return (
                   <Pressable
@@ -77,7 +80,7 @@ export function AdminHeader({ slug = '' }: Readonly<{ slug?: string }>) {
                     accessibilityRole="link"
                     accessibilityState={{ selected: on }}
                     style={({ pressed }) => [styles.navItem, on && styles.navOn, pressed && !on && styles.navPressed]}
-                    onPress={() => go((n.slug ? `/administrador/${n.slug}` : '/administrador') as Href, true)}
+                    onPress={() => go((n.slug ? `${base}/${n.slug}` : base) as Href, true)}
                   >
                     <Ionicons name={ICONOS[n.slug] ?? 'grid-outline'} size={20} color={on ? Colors.onDarkAccent : Colors.textOnDarkMuted} />
                     <Text style={[styles.navLabel, on && styles.navLabelOn]}>{n.title}</Text>

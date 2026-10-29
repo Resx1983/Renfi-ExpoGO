@@ -23,6 +23,8 @@ export interface RegistroParams {
   telefono: string;
   correo: string;
   contrasena: string;
+  /** 'dueno' crea una cuenta de dueño de finca; por defecto, cliente. */
+  tipoCuenta?: 'cliente' | 'dueno';
 }
 
 /** SHA-512 en hex minúsculas; la API acepta contraseñas en claro o en este formato. */
@@ -63,7 +65,7 @@ export async function iniciarSesion(correo: string, contrasena: string): Promise
 
 // ─── Registrar Usuario ────────────────────────────────────────────────────────
 
-/** El registro público siempre crea una cuenta de Cliente (la API ignora cualquier rol enviado). */
+/** El registro público crea un Cliente o, con tipoCuenta 'dueno', un Dueño de finca (la API ignora cualquier otro rol). */
 export async function registrarUsuario(params: RegistroParams): Promise<RegisterResult> {
   const r = await api.post<{ id: number; NumeroDocumento?: number }>('/api/usuario', {
     NombreUsuario: params.nombre.trim(),
@@ -71,6 +73,7 @@ export async function registrarUsuario(params: RegistroParams): Promise<Register
     Telefono: params.telefono.trim() || null,
     Correo: params.correo.trim().toLowerCase(),
     Contrasena: params.contrasena,
+    TipoCuenta: params.tipoCuenta ?? 'cliente',
   });
   if (r.error || !r.data) {
     return {

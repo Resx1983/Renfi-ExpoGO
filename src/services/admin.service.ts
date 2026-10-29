@@ -35,6 +35,13 @@ export async function listarRegistros(table: string, idField: string): Promise<R
   return { data: [...r.data].sort((a, b) => Number(b[idField]) - Number(a[idField])), error: null };
 }
 
+/** Fincas del dueño autenticado (panel "Mi finca"). */
+export async function listarMisFincas(): Promise<Result<Row[]>> {
+  const r = await api.get<Row[]>('/api/finca/mias');
+  if (r.error || !r.data) return { data: null, error: r.error || 'No fue posible cargar los datos.' };
+  return { data: [...r.data].sort((a, b) => Number(b.IdFinca) - Number(a.IdFinca)), error: null };
+}
+
 export async function crearRegistro(table: string, values: Row): Promise<Result<Row[]>> {
   const r = await api.post(ruta(table), values);
   return r.error ? { data: null, error: r.error } : { data: [r.data], error: null };

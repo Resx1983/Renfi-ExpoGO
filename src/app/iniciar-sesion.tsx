@@ -8,7 +8,7 @@ import { Input } from '../components/ui/Input';
 import { Checkbox } from '../components/ui/Checkbox';
 import { Alert, ConfirmDialog } from '../components/ui/Feedback';
 import { iniciarSesion } from '../services/auth.service';
-import { useAuth, esAdmin } from '../context/AuthContext';
+import { useAuth, esAdmin, esDueno } from '../context/AuthContext';
 import { Colors, Fonts } from '../constants/theme';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -46,7 +46,7 @@ export default function IniciarSesionScreen() {
       }
       setExito(true);
       setUsuario(data);
-      timer.current = setTimeout(() => router.replace(esAdmin(data) ? '/administrador' : '/'), 900);
+      timer.current = setTimeout(() => router.replace(esAdmin(data) ? '/administrador' : esDueno(data) ? '/mi-finca' : '/'), 900);
     } catch {
       setError(ERR_RED);
     } finally {
